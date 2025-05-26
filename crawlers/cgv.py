@@ -126,7 +126,7 @@ class CGVCrawler(BaseCrawler):
 
                     # ── stop-signal for outer loop ───────────────────────
                     if self._has_no_screenings(soup):
-                        return
+                        continue
 
                     for movie_block in soup.select("div.col-times"):
                         info_movie = movie_block.select_one("div.info-movie strong")
@@ -167,7 +167,7 @@ class CGVCrawler(BaseCrawler):
                                     movie_title=movie_title,
                                     start_dt=start_time,
                                     end_dt=end_time,
-                                    play_date=date.isoformat(),   # <──────── added
+                                    play_date=date.isoformat(),
                                     crawl_ts=crawl_ts,
                                 )
                                 await asyncio.sleep(0)  # let event-loop breathe

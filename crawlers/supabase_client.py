@@ -19,7 +19,7 @@ class SupabaseClient:
 
     def delete_screenings_by_date_and_chain(self, date_str: str, chain: Chain) -> None:
         """Delete screenings for a specific date and chain."""
-        self.client.table("screenings").delete().eq("crawl_ts::date", date_str).eq("provider", chain).execute()
+        self.client.table("screenings").delete().eq("play_date", date_str).eq("provider", chain).execute()
 
     def fetch_screenings(self, min_time: str, chain: Chain) -> List[Dict[str, Any]]:
         """Fetch all screenings after min_time (HH:MM) for a chain."""
