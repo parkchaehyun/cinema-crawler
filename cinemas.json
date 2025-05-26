@@ -68,5 +68,19 @@
       "chain": "Megabox",
       "latitude": 37.4846,
       "longitude": 126.9816
+    },
+    {
+    "cinema_code": "1|1|1015",
+    "name": "롯데시네마 신도림",
+    "chain": "Lotte",
+    "latitude": 37.5085,
+    "longitude": 126.8895
+    },
+    {
+    "cinema_code": "1|1|1003",
+    "name": "롯데시네마 노원",
+    "chain": "Lotte",
+    "latitude": 37.6544,
+    "longitude": 127.0608
     }
 ]
