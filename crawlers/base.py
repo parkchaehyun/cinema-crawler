@@ -1,13 +1,59 @@
 import abc
-from typing import Iterable
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Iterable, List, get_args
 import datetime as dt
 from models import Screening, Chain
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class BaseCrawler(abc.ABC):
     chain: Chain
 
-    def __init__(self, batch_size: int = 10):
+    def __init__(self, supabase=None, batch_size: int = 10):
+        if not hasattr(self, "chain") or self.chain not in get_args(Chain):
+            raise ValueError(f"Invalid chain: {getattr(self, 'chain', None)}")
+
+        self.supabase = supabase
         self.batch_size = batch_size
+        self.theaters: List[dict] = self.load_theaters()
+    def load_theaters(self) -> List[dict]:
+        """
+        Load theaters from local JSON or fallback to Supabase.
+        Filters by `self.chain`.
+        """
+        try:
+            root_dir = Path(__file__).parent.parent
+            json_path = root_dir / "cinemas.json"
+            if json_path.exists():
+                with open(json_path, encoding="utf-8") as fp:
+                    data = [c for c in json.load(fp) if c["chain"] == self.chain]
+                logger.info("Loaded %d %s theaters from %s", len(data), self.chain, json_path)
+                return data
+            elif self.supabase:
+                data = self.supabase.fetch_cinemas(chain=self.chain)
+                logger.info("Loaded %d %s theaters from Supabase", len(data), self.chain)
+                return data
+        except Exception as exc:
+            logger.error("Error loading theaters: %s", exc)
+        return []
+
+    async def save_to_db(self, screenings: List) -> None:
+        if not screenings:
+            return
+        try:
+            data = [s.model_dump() for s in screenings]
+            self.supabase.delete_screenings_by_date_and_chain(
+                screenings[0].play_date, self.chain
+            )
+            self.supabase.insert_screenings(data)
+            logger.info("Saved %d %s screenings to Supabase", len(data), self.chain)
+        except Exception as exc:
+            logger.error("Supabase save error: %s", exc)
+            raise
 
     async def run(
             self,
@@ -42,7 +88,3 @@ class BaseCrawler(abc.ABC):
     @abc.abstractmethod
     async def iter(self, date: dt.date) -> Iterable[Screening]:
         """A-sync generator yielding Screening objects"""
-
-    async def save_to_db(self, screenings: list[Screening]) -> None:
-        """Save screenings to database (implemented in subclasses)"""
-        pass

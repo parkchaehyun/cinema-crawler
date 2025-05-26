@@ -44,9 +44,7 @@ class CGVCrawler(BaseCrawler):
 
     # ----------------------------------------------------------- life-cycle
     def __init__(self, supabase: SupabaseClient, batch_size: int = 10):
-        super().__init__(batch_size=batch_size)
-        self.supabase = supabase
-        self.theaters: List[dict] = self._load_theaters()
+        super().__init__(supabase=supabase, batch_size=batch_size)
         if not self.theaters:
             raise ValueError("No CGV theaters found")
 
@@ -72,23 +70,6 @@ class CGVCrawler(BaseCrawler):
         )
         chromedriver_path = "/opt/chromedriver"
         return webdriver.Chrome(service=Service(executable_path=chromedriver_path), options=options)
-
-    def _load_theaters(self) -> List[dict]:
-        """JSON on disk ⟶ fallback to Supabase."""
-        try:
-            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-            json_path = os.path.join(root_dir, "cinemas.json")
-            if os.path.exists(json_path):
-                with open(json_path, encoding="utf-8") as fp:
-                    data = [c for c in json.load(fp) if c["chain"] == "CGV"]
-                logger.info("Loaded %d CGV theaters from %s", len(data), json_path)
-                return data
-            data = self.supabase.fetch_cinemas(chain="CGV")
-            logger.info("Loaded %d CGV theaters from Supabase", len(data))
-            return data
-        except Exception as exc:
-            logger.error("Error loading CGV theaters: %s", exc)
-            return []
 
     # ---------------------------------------------------------------- crawl
     async def iter(self, date: dt.date) -> Iterable[Screening]:
@@ -180,18 +161,3 @@ class CGVCrawler(BaseCrawler):
                                 await asyncio.sleep(0)  # let event-loop breathe
         finally:
             driver.quit()
-
-    # ---------------------------------------------------------------- save (unchanged)
-    async def save_to_db(self, screenings: List[Screening]) -> None:
-        if not screenings:
-            return
-        try:
-            data = [s.model_dump() for s in screenings]
-            self.supabase.delete_screenings_by_date_and_chain(
-                screenings[0].play_date, self.chain
-            )
-            self.supabase.insert_screenings(data)
-            logger.info("Saved %d CGV screenings to Supabase", len(data))
-        except Exception as exc:
-            logger.error("Supabase save error: %s", exc)
-            raise
