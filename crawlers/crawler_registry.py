@@ -1,7 +1,7 @@
 from typing import Dict, Type
 from models import Chain
-from base import BaseCrawler
-from cgv import CGVCrawler
+from crawlers.base import BaseCrawler
+from crawlers.cgv import CGVCrawler
 from crawlers.supabase_client import SupabaseClient
 
 class CrawlerRegistry:

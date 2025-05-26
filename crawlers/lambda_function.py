@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import datetime as dt
-from crawler_registry import CrawlerRegistry
+from crawlers.crawler_registry import CrawlerRegistry
 from crawlers.supabase_client import SupabaseClient
 from models import Chain
 

@@ -15,9 +15,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 
-from base import BaseCrawler
+from crawlers.base import BaseCrawler
 from models import Screening, Chain
 from crawlers.supabase_client import SupabaseClient
 
@@ -55,16 +54,24 @@ class CGVCrawler(BaseCrawler):
     @staticmethod
     def _build_driver() -> webdriver.Chrome:
         options = Options()
-        options.add_argument("--headless=new")          # Chrome >= 109
+        options.binary_location = "/opt/chrome/chrome"
+
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--single-process")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--disable-setuid-sandbox")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--remote-debugging-port=9222")
+        options.add_argument("--window-size=1280x1696")
         options.add_argument(
             "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        return webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=options,
-        )
+        chromedriver_path = "/opt/chromedriver"
+        return webdriver.Chrome(service=Service(executable_path=chromedriver_path), options=options)
 
     def _load_theaters(self) -> List[dict]:
         """JSON on disk ⟶ fallback to Supabase."""
@@ -168,7 +175,7 @@ class CGVCrawler(BaseCrawler):
                                     start_dt=start_time,
                                     end_dt=end_time,
                                     play_date=date.isoformat(),
-                                    crawl_ts=crawl_ts,
+                                    crawl_ts=crawl_ts.isoformat()
                                 )
                                 await asyncio.sleep(0)  # let event-loop breathe
         finally:
