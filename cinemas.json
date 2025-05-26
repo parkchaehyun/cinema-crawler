@@ -1,0 +1,58 @@
+[
+    {
+        "cinema_code": "0013",
+        "name": "CGV용산아이파크몰",
+        "chain": "CGV",
+        "latitude": 37.5299,
+        "longitude": 126.9648,
+        "areacode": "01"
+    },
+    {
+        "cinema_code": "0040",
+        "name": "CGV압구정",
+        "chain": "CGV",
+        "latitude": 37.5242,
+        "longitude": 127.0294,
+        "areacode": "01"
+    },
+    {
+        "cinema_code": "0105",
+        "name": "CGV명동역씨네라이브러리",
+        "chain": "CGV",
+        "latitude": 37.5613,
+        "longitude": 126.9853,
+        "areacode": "01"
+    },
+    {
+        "cinema_code": "0112",
+        "name": "CGV여의도",
+        "chain": "CGV",
+        "latitude": 37.5254,
+        "longitude": 126.9256,
+        "areacode": "01"
+    },
+    {
+        "cinema_code": "0001",
+        "name": "CGV강변",
+        "chain": "CGV",
+        "latitude": 37.5356,
+        "longitude": 127.0960,
+        "areacode": "01"
+    },
+    {
+        "cinema_code": "0063",
+        "name": "CGV대학로",
+        "chain": "CGV",
+        "latitude": 37.5834,
+        "longitude": 126.9998,
+        "areacode": "01"
+    },
+    {
+        "cinema_code": "0150",
+        "name": "CGV신촌아트레온",
+        "chain": "CGV",
+        "latitude": 37.5566,
+        "longitude": 126.9402,
+        "areacode": "01"
+    }
+]
