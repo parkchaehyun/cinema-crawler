@@ -2,11 +2,13 @@ from typing import Dict, Type
 from models import Chain
 from crawlers.base import BaseCrawler
 from crawlers.cgv import CGVCrawler
+from crawlers.megabox import MegaboxCrawler
 from crawlers.supabase_client import SupabaseClient
 
 class CrawlerRegistry:
     _crawlers: Dict[Chain, Type[BaseCrawler]] = {
-        "CGV": CGVCrawler
+        "CGV": CGVCrawler,
+        "Megabox": MegaboxCrawler,
         # Add others: "Megabox": MegaboxCrawler, "Lotte": LotteCrawler, etc.
     }
 

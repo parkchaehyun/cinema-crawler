@@ -54,5 +54,19 @@
         "latitude": 37.5566,
         "longitude": 126.9402,
         "areacode": "01"
+    },
+    {
+      "cinema_code": "1351",
+      "name": "메가박스 코엑스",
+      "chain": "Megabox",
+      "latitude": 37.5125,
+      "longitude": 127.0580
+    },
+    {
+      "cinema_code": "1562",
+      "name": "아트나인",
+      "chain": "Megabox",
+      "latitude": 37.4846,
+      "longitude": 126.9816
     }
 ]
