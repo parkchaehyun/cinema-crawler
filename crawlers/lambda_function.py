@@ -3,7 +3,7 @@ import json
 import logging
 import datetime as dt
 from crawler_registry import CrawlerRegistry
-from supabase_client import SupabaseClient
+from crawlers.supabase_client import SupabaseClient
 from models import Chain
 
 logging.basicConfig(level=logging.INFO)

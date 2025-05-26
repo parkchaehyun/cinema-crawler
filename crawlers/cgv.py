@@ -19,7 +19,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 from base import BaseCrawler
 from models import Screening, Chain
-from supabase_client import SupabaseClient
+from crawlers.supabase_client import SupabaseClient
 
 # ────────────────────────────────────────────────────────────────────────────
 # logging
