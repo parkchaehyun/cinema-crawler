@@ -30,7 +30,7 @@ class LotteCinemaCrawler(BaseCrawler):
                 "osType": "W",
                 "osVersion": "Chrome",
                 "playDate": date.strftime("%Y-%m-%d"),
-                "cinemaID": theater["cinema_code"],
+                "cinemaID": theater.cinema_code,
                 "representationMovieCode": ""
             }
 
@@ -53,7 +53,7 @@ class LotteCinemaCrawler(BaseCrawler):
                         yield Screening(
                             provider=self.chain,
                             cinema_name=item["CinemaNameKR"],
-                            cinema_code=theater["cinema_code"],
+                            cinema_code=theater.cinema_code,
                             screen_name=item.get("ScreenNameKR") or "",
                             movie_title=item["MovieNameKR"].strip(),
                             play_date=date.isoformat(),
@@ -63,4 +63,4 @@ class LotteCinemaCrawler(BaseCrawler):
                         )
 
             except Exception as e:
-                print(f"❌ Error processing {theater['name']}: {e}")
+                print(f"❌ Error processing {theater.name}: {e}")

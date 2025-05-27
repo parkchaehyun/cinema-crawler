@@ -1,14 +1,14 @@
 import abc
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Iterable, List, get_args
 import datetime as dt
-from models import Screening, Chain
+from models import Screening, Chain, Cinema
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 class BaseCrawler(abc.ABC):
     chain: Chain
@@ -19,8 +19,9 @@ class BaseCrawler(abc.ABC):
 
         self.supabase = supabase
         self.batch_size = batch_size
-        self.theaters: List[dict] = self.load_theaters()
-    def load_theaters(self) -> List[dict]:
+        self.theaters: List[Cinema] = self.load_theaters()
+
+    def load_theaters(self) -> list[Cinema]:
         """
         Load theaters from local JSON or fallback to Supabase.
         Filters by `self.chain`.
@@ -30,11 +31,12 @@ class BaseCrawler(abc.ABC):
             json_path = root_dir / "cinemas.json"
             if json_path.exists():
                 with open(json_path, encoding="utf-8") as fp:
-                    data = [c for c in json.load(fp) if c["chain"] == self.chain]
+                    data = [Cinema(**c) for c in json.load(fp) if c["chain"] == self.chain]
                 logger.info("Loaded %d %s theaters from %s", len(data), self.chain, json_path)
                 return data
             elif self.supabase:
-                data = self.supabase.fetch_cinemas(chain=self.chain)
+                raw = self.supabase.fetch_cinemas(chain=self.chain)
+                data = [Cinema(**c) for c in raw]
                 logger.info("Loaded %d %s theaters from Supabase", len(data), self.chain)
                 return data
         except Exception as exc:

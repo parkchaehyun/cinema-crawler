@@ -1,5 +1,4 @@
-from datetime import datetime, date
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 import uuid
 
@@ -24,5 +23,7 @@ class Cinema(BaseModel):
     cinema_code: str = Field(..., description="Unique cinema code, e.g., '0013'")
     name: str = Field(..., description="Cinema name, e.g., 'CGV용산아이파크몰'")
     chain: Chain
-    latitude: float = Field(..., description="GPS latitude, e.g., 37.5299")
-    longitude: float = Field(..., description="GPS longitude, e.g., 126.9648")
+    latitude: float = Field(..., description="GPS latitude")
+    longitude: float = Field(..., description="GPS longitude")
+    brand_cd: Optional[str] = None  # Dtryx-specific
+    areacode: Optional[str] = None  # CGV-specific

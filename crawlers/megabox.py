@@ -25,7 +25,7 @@ class MegaboxCrawler(BaseCrawler):
         crawl_ts = dt.datetime.utcnow()
 
         for theater in self.theaters:
-            brch_no = theater["cinema_code"]
+            brch_no = theater.cinema_code
             body = {
                 "masterType": "brch",
                 "detailType": "area",
