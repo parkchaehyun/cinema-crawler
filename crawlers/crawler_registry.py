@@ -5,6 +5,7 @@ from crawlers.cgv import CGVCrawler
 from crawlers.megabox import MegaboxCrawler
 from crawlers.lotte import LotteCinemaCrawler
 from crawlers.dtryx import DtryxCrawler
+from crawlers.moonhwain import MoonhwainCrawler
 from crawlers.supabase_client import SupabaseClient
 
 class CrawlerRegistry:
@@ -13,6 +14,7 @@ class CrawlerRegistry:
         "Megabox": MegaboxCrawler,
         "Lotte": LotteCinemaCrawler,
         "Dtryx": DtryxCrawler,
+        "Moonhwain": MoonhwainCrawler,
     }
 
     @classmethod

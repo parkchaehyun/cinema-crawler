@@ -154,5 +154,13 @@
         "latitude": 37.5651,
         "longitude": 126.9309,
         "brand_cd": "spacedog"
+    },
+    {
+        "cinema_code": "0",
+        "name": "픽처하우스",
+        "chain": "Moonhwain",
+        "latitude": 37.5230,
+        "longitude": 127.0220
     }
+
 ]
