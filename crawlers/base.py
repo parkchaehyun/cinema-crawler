@@ -50,37 +50,27 @@ class BaseCrawler(abc.ABC):
                 screenings[0].play_date, self.chain
             )
             self.supabase.insert_screenings(data)
-            logger.info("Saved %d %s screenings to Supabase", len(data), self.chain)
+            print(f"✅ Supabase insert successful for {self.chain}")
         except Exception as exc:
-            logger.error("Supabase save error: %s", exc)
+            print(f"❌ Supabase save error for {self.chain}: {exc}")
             raise
 
     async def run(
             self,
             start_date: dt.date | None = None,
-            max_days: int | None = None  # ⬅️ safety valve; None == unlimited
+            max_days: int | None = None
     ) -> list[Screening]:
-        """
-        Crawl day-by-day until `iter()` yields nothing.
-        Optional `max_days` stops the loop after N days even
-        if data keeps coming (guards against site bugs).
-        """
         start = start_date or dt.date.today()
         collected: list[Screening] = []
 
         day_offset = 0
-        while True:
-            if max_days is not None and day_offset >= max_days:
-                break
-
+        while max_days is None or day_offset < max_days:
             target_date = start + dt.timedelta(days=day_offset)
             day_screenings = [s async for s in self.iter(target_date)]
 
-            # nothing for this date → we’re done
-            if not day_screenings:
-                break
+            if day_screenings:
+                collected.extend(day_screenings)
 
-            collected.extend(day_screenings)
             day_offset += 1
 
         return collected

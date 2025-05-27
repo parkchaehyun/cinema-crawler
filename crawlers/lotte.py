@@ -4,10 +4,6 @@ import httpx
 import datetime as dt
 from typing import Iterable
 import json
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 class LotteCinemaCrawler(BaseCrawler):
     chain: Chain = "Lotte"
@@ -18,6 +14,11 @@ class LotteCinemaCrawler(BaseCrawler):
             "Content-Type": "application/x-www-form-urlencoded",
             "Referer": "https://www.lottecinema.co.kr",
             "Origin": "https://www.lottecinema.co.kr",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
         }
 
         crawl_ts = dt.datetime.utcnow()
@@ -62,4 +63,4 @@ class LotteCinemaCrawler(BaseCrawler):
                         )
 
             except Exception as e:
-                logger.warning(f"Error processing {theater['name']}: {e}")
+                print(f"❌ Error processing {theater['name']}: {e}")

@@ -15,6 +15,11 @@ class MegaboxCrawler(BaseCrawler):
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.megabox.co.kr",
             "Referer": "https://www.megabox.co.kr/booking/timetable",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
         }
 
         crawl_ts = dt.datetime.utcnow()

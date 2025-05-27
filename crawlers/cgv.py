@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
-import logging
 import os
 import re
 from typing import Iterable, List
@@ -19,14 +18,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from crawlers.base import BaseCrawler
 from models import Screening, Chain
 from crawlers.supabase_client import SupabaseClient
-
-# ────────────────────────────────────────────────────────────────────────────
-# logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-# ────────────────────────────────────────────────────────────────────────────
 class CGVCrawler(BaseCrawler):
     chain: Chain = "CGV"
 
@@ -109,7 +100,7 @@ class CGVCrawler(BaseCrawler):
                         )
                         soup = BeautifulSoup(driver.page_source, "html.parser")
                     except Exception as exc:
-                        logger.warning("Failed to load %s: %s", name, exc)
+                        print(f"⚠️ Failed to load {name}: {exc}")
                         continue
 
                     # ── stop-signal for outer loop ───────────────────────
