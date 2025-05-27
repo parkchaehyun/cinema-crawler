@@ -50,16 +50,35 @@ class LotteCinemaCrawler(BaseCrawler):
                         if not item.get("StartTime"):
                             continue
 
+                        screen_id = item.get("ScreenID")
+                        cinema_id = item.get("CinemaID")
+                        movie_cd = item.get("RepresentationMovieCode")
+                        play_date = item.get("PlayDt")  # Should already be in "YYYY-MM-DD"
+                        start_time = item.get("StartTime")  # e.g., "20:30"
+
+                        book_url = (
+                            f"https://www.lottecinema.co.kr/NLCHS/ticketing"
+                            f"?link_screenId={screen_id}"
+                            f"&link_cinemaCode={cinema_id}"
+                            f"&link_movieCd={movie_cd}"
+                            f"&link_date={play_date}"
+                            f"&link_time={start_time}"
+                            f"&link_channelCode=naver"
+                        )
+
                         yield Screening(
                             provider=self.chain,
                             cinema_name=item["CinemaNameKR"],
-                            cinema_code=theater.cinema_code,
-                            screen_name=item.get("ScreenNameKR") or "",
+                            cinema_code=str(cinema_id),
+                            screen_name=item["ScreenNameKR"],
                             movie_title=item["MovieNameKR"].strip(),
-                            play_date=date.isoformat(),
-                            start_dt=item["StartTime"],
-                            end_dt=item["EndTime"],
-                            crawl_ts=crawl_ts.isoformat()
+                            play_date=play_date,
+                            start_dt=start_time,
+                            end_dt=item.get("EndTime"),
+                            crawl_ts=crawl_ts.isoformat(),
+                            url=book_url,
+                            remain_seat_cnt=int(item["BookingSeatCount"]),
+                            total_seat_cnt=int(item["TotalSeatCount"])
                         )
 
             except Exception as e:

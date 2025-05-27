@@ -47,11 +47,10 @@ class BaseCrawler(abc.ABC):
         if not screenings:
             return
         try:
-            data = [s.model_dump() for s in screenings]
             self.supabase.delete_screenings_by_date_and_chain(
                 screenings[0].play_date, self.chain
             )
-            self.supabase.insert_screenings(data)
+            self.supabase.insert_screenings(screenings)
             print(f"✅ Supabase insert successful for {self.chain}")
         except Exception as exc:
             print(f"❌ Supabase save error for {self.chain}: {exc}")

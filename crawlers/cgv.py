@@ -80,10 +80,10 @@ class CGVCrawler(BaseCrawler):
             for i in range(0, len(self.theaters), self.batch_size):
                 batch = self.theaters[i : i + self.batch_size]
 
-                for theatre in batch:
-                    code = theatre["cinema_code"]
-                    name = theatre["name"]
-                    area = theatre.get("areacode", "01")
+                for theater in batch:
+                    code = theater.cinema_code
+                    name = theater.name
+                    area = theater.areacode or "01"
 
                     url = (
                         f"http://www.cgv.co.kr/reserve/show-times/"
@@ -112,8 +112,13 @@ class CGVCrawler(BaseCrawler):
                         movie_title = info_movie.get_text(strip=True) if info_movie else "Unknown"
 
                         for hall in movie_block.select("div.type-hall"):
-                            hall_li = hall.select_one("div.info-hall li:nth-child(2)")
-                            screen_name = hall_li.get_text(strip=True) if hall_li else "Unknown"
+                            screen_name_li = hall.select_one("div.info-hall li:nth-child(2)")
+                            screen_name = screen_name_li.get_text(strip=True) if screen_name_li else "Unknown"
+
+                            hall_info_items = hall.select("div.info-hall li")
+                            seat_info_li = next((li for li in hall_info_items if "총" in li.text), None)
+                            total_seats = int(
+                                re.search(r"총\s*(\d+)", seat_info_li.text).group(1)) if seat_info_li else None
 
                             if "아트하우스" not in screen_name.lower() and "art" not in screen_name.lower():
                                 # skip non-arthouse screens
@@ -138,6 +143,13 @@ class CGVCrawler(BaseCrawler):
                                 if status in {"마감", "매진"}:
                                     continue
 
+                                href = anchor.get("href") if anchor.name == "a" else None
+                                book_url = f"https://www.cgv.co.kr{href}" if href else None
+
+                                remain_seats = int(
+                                    anchor.get("data-seatremaincnt")) if anchor.name == "a" and anchor.has_attr(
+                                    "data-seatremaincnt") else None
+
                                 yield Screening(
                                     provider=self.chain,
                                     cinema_name=name,
@@ -147,7 +159,10 @@ class CGVCrawler(BaseCrawler):
                                     start_dt=start_time,
                                     end_dt=end_time,
                                     play_date=date.isoformat(),
-                                    crawl_ts=crawl_ts.isoformat()
+                                    crawl_ts=crawl_ts.isoformat(),
+                                    url=book_url,
+                                    remain_seat_cnt=remain_seats,
+                                    total_seat_cnt=total_seats
                                 )
                                 await asyncio.sleep(0)  # let event-loop breathe
         finally:

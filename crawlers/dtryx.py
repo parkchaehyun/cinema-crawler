@@ -36,6 +36,16 @@ class DtryxCrawler(BaseCrawler):
                     continue
 
                 for item in data.get("Showseqlist", []):
+                    book_url = (
+                        f"https://www.dtryx.com/reserve/movie.do"
+                        f"?cgid=FE8EF4D2-F22D-4802-A39A-D58F23A29C1E"
+                        f"&CinemaCd={item['CinemaCd']}"
+                        f"&MovieCd={item['MovieCd']}"
+                        f"&PlaySDT={item['PlaySDT']}"
+                        f"&ScreenCd={item['ScreenCd']}"
+                        f"&ShowSeq={item['ShowSeq']}"
+                    )
+
                     yield Screening(
                         provider=self.chain,
                         cinema_name=item["CinemaNm"],
@@ -46,4 +56,7 @@ class DtryxCrawler(BaseCrawler):
                         start_dt=item["StartTime"],
                         end_dt=item["EndTime"],
                         crawl_ts=crawl_ts,
+                        url=book_url,
+                        remain_seat_cnt=int(item["RemainSeatCnt"]),
+                        total_seat_cnt=int(item["TotalSeatCnt"])
                     )

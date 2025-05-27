@@ -50,18 +50,24 @@ class MegaboxCrawler(BaseCrawler):
                     cinema_name = item["brchNm"]
                     screen_name = item["theabExpoNm"].strip()
 
-                    # At Coex, only filter art screens
+                    # At 코엑스, only include art screens
                     if cinema_name == "코엑스" and screen_name not in {"스크린A", "스크린B"}:
                         continue
 
+                    play_schdl_no = item.get("playSchdlNo")
+                    book_url = f"https://www.megabox.co.kr/bookingByPlaySchdlNo?playSchdlNo={play_schdl_no}" if play_schdl_no else None
+
                     yield Screening(
                         provider=self.chain,
-                        cinema_name=item["brchNm"],
+                        cinema_name=cinema_name,
                         cinema_code=item["brchNo"],
-                        screen_name=item["theabExpoNm"].strip(),
+                        screen_name=screen_name,
                         movie_title=item["rpstMovieNm"].strip(),
                         play_date=date.isoformat(),
                         start_dt=item["playStartTime"],
                         end_dt=item["playEndTime"],
                         crawl_ts=crawl_ts.isoformat(),
+                        url=book_url,
+                        remain_seat_cnt=int(item["restSeatCnt"]),
+                        total_seat_cnt=int(item["totSeatCnt"])
                     )

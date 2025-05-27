@@ -17,7 +17,9 @@ class Screening(BaseModel):
                           description="Start time in HH:MM format, allowing 00:00 to 26:59")
     end_dt: str = Field(..., pattern=r'^\d{2}:\d{2}$', description="End time in HH:MM format, allowing 00:00 to 26:59")
     crawl_ts: str  # '2025-05-26T12:34:56'
-
+    url: Optional[str] = None # booking URL, if available
+    remain_seat_cnt: Optional[int] = None
+    total_seat_cnt: Optional[int] = None
 
 class Cinema(BaseModel):
     cinema_code: str = Field(..., description="Unique cinema code, e.g., '0013'")
