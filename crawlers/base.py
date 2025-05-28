@@ -47,9 +47,6 @@ class BaseCrawler(abc.ABC):
         if not screenings:
             return
         try:
-            self.supabase.delete_screenings_by_date_and_chain(
-                screenings[0].play_date, self.chain
-            )
             self.supabase.insert_screenings(screenings)
             print(f"✅ Supabase insert successful for {self.chain}")
         except Exception as exc:

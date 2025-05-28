@@ -24,7 +24,7 @@ class TinyTicketCrawler(BaseCrawler):
 
         chrome_opts = Options()
         chrome_opts.binary_location = "/opt/chrome/chrome"
-        chrome_opts.add_argument("--headless=new")
+        chrome_opts.add_argument("--headless")
         chrome_opts.add_argument("--no-sandbox")
         chrome_opts.add_argument("--disable-setuid-sandbox")
         chrome_opts.add_argument("--disable-dev-shm-usage")

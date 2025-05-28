@@ -16,21 +16,13 @@ class SupabaseClient:
 
     def insert_screenings(self, data: list[Screening]):
         """Insert screenings into Supabase."""
-        payload = [s.model_dump() for s in data]
-        self.client.table("screenings").insert(payload).execute()
-
-    def delete_screenings_by_date_and_chain(self, date_str: str, chain: Chain) -> None:
-        """Delete screenings for a specific date and chain."""
-        self.client.table("screenings").delete().eq("play_date", date_str).eq("provider", chain).execute()
-
-    def fetch_screenings(self, min_time: str, chain: Chain) -> List[Dict[str, Any]]:
-        """Fetch all screenings after min_time (HH:MM) for a chain."""
-        response = self.client.table("screenings")\
-            .select("*")\
-            .eq("provider", chain)\
-            .gte("start_dt::time", min_time)\
-            .execute()
-        return response.data
+        payload = [s.model_dump(exclude_none=True) for s in data]
+        (
+            self.client.table("screenings").upsert(
+                payload,
+                on_conflict="provider,cinema_code,play_date,start_dt,screen_name",
+            ).execute()
+        )
 
     def fetch_cinemas(self, chain: Chain | None = None) -> List[Dict[str, Any]]:
         """Fetch cinemas from Supabase, optionally filtered by chain."""

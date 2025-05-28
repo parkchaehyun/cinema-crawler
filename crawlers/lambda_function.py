@@ -4,8 +4,8 @@ from crawlers.crawler_registry import CrawlerRegistry
 from crawlers.supabase_client import SupabaseClient
 
 def lambda_handler(event, context):
-    chains = event.get("chains", ["CGV", "Megabox", "Lotte"])
-    max_days = event.get("max_days", 1)
+    chains = event.get("chains", ["CGV", "Megabox", "Lotte", "TinyTicket", "Moonhwain", "Dtryx", "KOFA"])
+    max_days = event.get("max_days", 14)
     supabase = SupabaseClient()
 
     async def run_all():

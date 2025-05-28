@@ -69,7 +69,7 @@ class LotteCinemaCrawler(BaseCrawler):
                         yield Screening(
                             provider=self.chain,
                             cinema_name=item["CinemaNameKR"],
-                            cinema_code=str(cinema_id),
+                            cinema_code=theater.cinema_code,
                             screen_name=item["ScreenNameKR"],
                             movie_title=item["MovieNameKR"].strip(),
                             play_date=play_date,
