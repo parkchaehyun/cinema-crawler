@@ -175,5 +175,12 @@
         "chain": "TinyTicket",
         "latitude": 37.5572,
         "longitude": 126.9250
+    },
+    {
+        "cinema_code": "KOFA",
+        "name": "시네마테크KOFA",
+        "chain": "KOFA",
+        "latitude": 37.5806,
+        "longitude": 126.8900
     }
 ]

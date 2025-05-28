@@ -7,6 +7,7 @@ from crawlers.lotte import LotteCinemaCrawler
 from crawlers.dtryx import DtryxCrawler
 from crawlers.moonhwain import MoonhwainCrawler
 from crawlers.tinyticket import TinyTicketCrawler
+from crawlers.kofa import KOFACrawler
 from crawlers.supabase_client import SupabaseClient
 
 class CrawlerRegistry:
@@ -17,6 +18,7 @@ class CrawlerRegistry:
         "Dtryx": DtryxCrawler,
         "Moonhwain": MoonhwainCrawler,
         "TinyTicket": TinyTicketCrawler,
+        "KOFA": KOFACrawler,
     }
 
     @classmethod
