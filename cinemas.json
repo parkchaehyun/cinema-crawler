@@ -161,6 +161,19 @@
         "chain": "Moonhwain",
         "latitude": 37.5230,
         "longitude": 127.0220
+    },
+    {
+        "cinema_code": "EMusZONUABqg",
+        "name": "서울아트시네마",
+        "chain": "TinyTicket",
+        "latitude": 37.5681,
+        "longitude": 126.9700
+    },
+    {
+        "cinema_code": "EM9Lu9GNN0ZA",
+        "name": "인디스페이스",
+        "chain": "TinyTicket",
+        "latitude": 37.5572,
+        "longitude": 126.9250
     }
-
 ]
