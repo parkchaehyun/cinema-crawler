@@ -16,12 +16,17 @@ class SupabaseClient:
 
     def insert_screenings(self, data: list[Screening]):
         """Insert screenings into Supabase."""
-        payload = [s.model_dump(exclude_none=True) for s in data]
+        unique_map = {}
+        for s in data:
+            key = (s.provider, s.cinema_code, s.play_date, s.start_dt, s.screen_name)
+            unique_map[key] = s  # Last one wins
+
+        payload = [s.model_dump(exclude_none=True) for s in unique_map.values()]
+
         (
-            self.client.table("screenings").upsert(
-                payload,
-                on_conflict="provider,cinema_code,play_date,start_dt,screen_name",
-            ).execute()
+            self.client.table("screenings")
+            .upsert(payload, on_conflict="provider,cinema_code,play_date,start_dt,screen_name")
+            .execute()
         )
 
     def fetch_cinemas(self, chain: Chain | None = None) -> List[Dict[str, Any]]:

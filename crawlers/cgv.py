@@ -71,6 +71,8 @@ class CGVCrawler(BaseCrawler):
         yields nothing, so we **return immediately** when the iframe
         tells us “no schedule”.
         """
+        seen_keys: set[tuple] = set()
+
         crawl_ts = dt.datetime.utcnow()
         date_str = date.strftime("%Y%m%d")
 
@@ -146,9 +148,28 @@ class CGVCrawler(BaseCrawler):
                                 href = anchor.get("href") if anchor.name == "a" else None
                                 book_url = f"https://www.cgv.co.kr{href}" if href else None
 
+                                match = re.search(r"PLAY_YMD=(\d{8})", href or "")
+                                if match:
+                                    ymd = match.group(1)
+                                    play_date = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}"
+                                else:
+                                    play_date = date.isoformat()
+
                                 remain_seats = int(
                                     anchor.get("data-seatremaincnt")) if anchor.name == "a" and anchor.has_attr(
                                     "data-seatremaincnt") else None
+
+                                dedup_key = (
+                                    code,
+                                    play_date,
+                                    screen_name.strip().lower(),
+                                    movie_title.strip().lower(),
+                                    start_time
+                                )
+
+                                if dedup_key in seen_keys:
+                                    continue
+                                seen_keys.add(dedup_key)
 
                                 yield Screening(
                                     provider=self.chain,
@@ -158,7 +179,7 @@ class CGVCrawler(BaseCrawler):
                                     movie_title=movie_title,
                                     start_dt=start_time,
                                     end_dt=end_time,
-                                    play_date=date.isoformat(),
+                                    play_date=play_date,
                                     crawl_ts=crawl_ts.isoformat(),
                                     url=book_url,
                                     remain_seat_cnt=remain_seats,
