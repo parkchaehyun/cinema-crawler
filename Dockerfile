@@ -1,39 +1,66 @@
-# ────────────────────────────────────────────────────────
-# Stage 1: chrome-builder (only builds Chromium binaries)
-# ────────────────────────────────────────────────────────
-FROM public.ecr.aws/lambda/python:3.11 AS chrome-builder
+# Define custom function directory
+ARG FUNCTION_DIR="/function"
 
-RUN yum install -y -q unzip curl sudo
-ENV CHROMIUM_VERSION=1002910
+# Use Microsoft's Playwright image as build stage
+FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy AS build-image
 
-COPY install-browser.sh /tmp/
-RUN /usr/bin/bash /tmp/install-browser.sh
+# Install aws-lambda-cpp build dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    g++ \
+    make \
+    cmake \
+    unzip \
+    libcurl4-openssl-dev \
+    software-properties-common \
+    fonts-liberation \
+    libappindicator3-1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libgdk-pixbuf2.0-0 \
+    libnspr4 \
+    libnss3 \
+    pciutils \
+    xdg-utils
 
-# ────────────────────────────────────────────────────────
-# Stage 2: crawler (Chrome + Selenium)
-# ────────────────────────────────────────────────────────
-FROM public.ecr.aws/lambda/python:3.11 AS crawler
+# Include global arg in this stage of the build
+ARG FUNCTION_DIR
 
-# Chromium dependencies
-COPY chrome-deps.txt /tmp/
-RUN yum install -y $(cat /tmp/chrome-deps.txt) && yum clean all
+# Create function directory
+RUN mkdir -p ${FUNCTION_DIR}
 
-# Copy Chrome + Chromedriver from chrome-builder
-COPY --from=chrome-builder /opt/chrome /opt/chrome
-COPY --from=chrome-builder /opt/chromedriver /opt/chromedriver
+# Install AWS Lambda Runtime Interface Client
+RUN pip install \
+    --target ${FUNCTION_DIR} \
+    awslambdaric
 
-# App code and deps
+# Copy requirements and install dependencies
 COPY requirements-crawler.txt .
-COPY crawlers/ /var/task/crawlers/
-COPY models.py /var/task/models.py
+RUN pip install --target ${FUNCTION_DIR} -r requirements-crawler.txt
 
-RUN pip install --upgrade pip && pip install -r requirements-crawler.txt
+# Copy application code
+COPY crawlers/ ${FUNCTION_DIR}/crawlers/
+COPY models.py ${FUNCTION_DIR}/models.py
+COPY cinemas.json ${FUNCTION_DIR}/cinemas.json
 
-ENV CHROME_BIN=/opt/chrome/chrome
-ENV CHROMEDRIVER_PATH=/opt/chromedriver
+# Multi-stage build: grab a fresh copy of the base image
+FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy AS crawler
 
-WORKDIR /var/task
-CMD ["crawlers.lambda_function.lambda_handler"]
+# Include global arg in this stage of the build
+ARG FUNCTION_DIR
+# Set working directory to function root directory
+WORKDIR ${FUNCTION_DIR}
+
+# Copy in the built dependencies
+COPY --from=build-image ${FUNCTION_DIR} ${FUNCTION_DIR}
+
+# Set runtime interface client as default command for the container runtime
+ENTRYPOINT [ "python", "-m", "awslambdaric" ]
+# Pass the name of the function handler as an argument to the runtime
+CMD [ "crawlers.lambda_function.lambda_handler" ]
 
 # ────────────────────────────────────────────────────────
 # Stage 3: tmdb (lightweight, no Chrome needed)

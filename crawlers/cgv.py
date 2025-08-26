@@ -2,189 +2,324 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import json
-import os
-import re
-from typing import Iterable, List
+from typing import Iterable
 
-from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
+from playwright.async_api import async_playwright, Browser
 
 from crawlers.base import BaseCrawler
-from models import Screening, Chain
+from models import Screening, Chain, Cinema
 from crawlers.supabase_client import SupabaseClient
+
+
 class CGVCrawler(BaseCrawler):
     chain: Chain = "CGV"
 
-    # ------------------------------------------------------------------ utils
-    @staticmethod
-    def _has_no_screenings(soup: BeautifulSoup) -> bool:
-        """
-        True if the iframe DOM is the ‘empty schedule’ page.
-        (CGV shows a `<div class="noData">편성된 … 없습니다` block.)
-        """
-        return bool(
-            soup.select_one("div.noData")
-            or "편성된 스케줄이 없습니다" in soup.get_text(" ", strip=True)
-        )
-
-    # ----------------------------------------------------------- life-cycle
     def __init__(self, supabase: SupabaseClient, batch_size: int = 10):
         super().__init__(supabase=supabase, batch_size=batch_size)
         if not self.theaters:
             raise ValueError("No CGV theaters found")
 
-    # ---------------------------------------------------------------- config
-    @staticmethod
-    def _build_driver() -> webdriver.Chrome:
-        options = Options()
-        options.binary_location = "/opt/chrome/chrome"
-
-        options.add_argument("--headless")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--single-process")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-software-rasterizer")
-        options.add_argument("--disable-setuid-sandbox")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--remote-debugging-port=9222")
-        options.add_argument("--window-size=1280x1696")
-        options.add_argument(
-            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
-        chromedriver_path = "/opt/chromedriver"
-        return webdriver.Chrome(service=Service(executable_path=chromedriver_path), options=options)
-
-    # ---------------------------------------------------------------- crawl
-    async def iter(self, date: dt.date) -> Iterable[Screening]:
-        """
-        Scrape a **single calendar day** for every theater in `self.theaters`.
-
-        The base-class `.run()` keeps calling this for day+1 until it
-        yields nothing, so we **return immediately** when the iframe
-        tells us “no schedule”.
-        """
-        seen_keys: set[tuple] = set()
-
+    async def run(
+        self, start_date: dt.date | None = None, max_days: int | None = None
+    ) -> list[Screening]:
+        screenings = []
         crawl_ts = dt.datetime.utcnow()
-        date_str = date.strftime("%Y%m%d")
 
-        driver = self._build_driver()
-        try:
-            # batch theatre URLs to be polite & keep memory down
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--no-zygote",
+                    "--disable-setuid-sandbox",
+                    "--disable-accelerated-2d-canvas",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-background-networking",
+                    "--disable-background-timer-throttling",
+                    "--disable-client-side-phishing-detection",
+                    "--disable-component-update",
+                    "--disable-default-apps",
+                    "--disable-domain-reliability",
+                    "--disable-features=AudioServiceOutOfProcess",
+                    "--disable-hang-monitor",
+                    "--disable-ipc-flooding-protection",
+                    "--disable-popup-blocking",
+                    "--disable-prompt-on-repost",
+                    "--disable-renderer-backgrounding",
+                    "--disable-sync",
+                    "--force-color-profile=srgb",
+                    "--metrics-recording-only",
+                    "--mute-audio",
+                    "--no-pings",
+                    "--use-gl=swiftshader",
+                    "--window-size=1280,1696",
+                ],
+            )
+
             for i in range(0, len(self.theaters), self.batch_size):
                 batch = self.theaters[i : i + self.batch_size]
-
-                for theater in batch:
-                    code = theater.cinema_code
-                    name = theater.name
-                    area = theater.areacode or "01"
-
-                    url = (
-                        f"http://www.cgv.co.kr/reserve/show-times/"
-                        f"?areacode={area}&theaterCode={code}&date={date_str}"
+                for theater_index, theater in enumerate(batch):
+                    theater_screenings = await self.crawl_theater(
+                        browser, theater, theater_index, len(batch), crawl_ts
                     )
-                    try:
-                        driver.get(url)
-                        WebDriverWait(driver, 10).until(
-                            EC.presence_of_element_located((By.ID, "ifrm_movie_time_table"))
+                    screenings.extend(theater_screenings)
+                    await asyncio.sleep(0)
+
+        return screenings
+
+    async def crawl_theater(
+        self,
+        browser: Browser,
+        theater: Cinema,
+        theater_index: int,
+        batch_size: int,
+        crawl_ts: dt.datetime,
+    ) -> list[Screening]:
+        # Create a new browser context for each theater for isolation
+        context = await browser.new_context()
+        page = await context.new_page()
+        screenings = []
+
+        try:
+            theater_name_for_click = theater.name.replace("CGV", "").strip()
+            print(
+                f"Processing theater {theater_index + 1}/{batch_size}: {theater.name}"
+            )
+
+            # Track API responses with loading detection
+            theater_data = []
+            completed_requests = set()
+
+            async def handle_response(response):
+                if (
+                    "searchMovScnInfo" in response.url
+                    and f"siteNo={theater.cinema_code}" in response.url
+                ):
+                    # Extract date from URL for tracking
+                    import re
+
+                    date_match = re.search(r'scnYmd=(\d{8})', response.url)
+                    date = date_match.group(1) if date_match else "unknown"
+
+                    data = await response.json()
+                    if data and data.get("statusCode") == 0 and data.get("data"):
+                        new_screenings = len(data["data"])
+                        theater_data.extend(data["data"])
+                        completed_requests.add(date)
+                        print(
+                            f"    API loaded {new_screenings} screenings for date {date}"
                         )
-                        driver.switch_to.frame("ifrm_movie_time_table")
-                        WebDriverWait(driver, 10).until(
-                            EC.presence_of_element_located((By.TAG_NAME, "body"))
+                    else:
+                        print(f"    API returned no data for date {date}")
+                        completed_requests.add(date)
+
+            async def wait_for_data_load(max_wait_seconds=10):
+                """Wait for API response"""
+                start_time = asyncio.get_event_loop().time()
+                initial_count = len(theater_data)
+
+                while (
+                    asyncio.get_event_loop().time() - start_time
+                ) < max_wait_seconds:
+                    if len(theater_data) > initial_count:
+                        return True
+                    await asyncio.sleep(0.1)
+
+                return False
+
+            page.on("response", handle_response)
+
+            print(f"  Navigating to CGV cinema page...")
+            await page.goto("https://cgv.co.kr/cnm/movieBook/cinema")
+            await page.wait_for_selector(".cgv-bot-modal.active")
+            print(f"  Clicking on theater: {theater_name_for_click}")
+            await page.locator(".cgv-bot-modal.active").locator(
+                f'text="{theater_name_for_click}"'
+            ).click()
+
+            print(f"  Waiting for initial data to load...")
+            initial_load_success = await wait_for_data_load(max_wait_seconds=15)
+            if not initial_load_success:
+                print(f"  WARNING: Initial data load timed out!")
+
+            print(f"  Initial data loaded: {len(theater_data)} screenings")
+
+            # Find all available date navigation elements for this specific theater
+            try:
+                # Get fresh date elements each time to avoid stale references
+                date_spans = await page.query_selector_all(
+                    "span.dayScroll_number__o8i9s"
+                )
+                print(f"  Found {len(date_spans)} total date elements for {theater.name}")
+
+                if len(date_spans) == 0:
+                    print(f"  WARNING: No date navigation elements found!")
+                else:
+                    # Get only ENABLED/CLICKABLE date texts to avoid disabled dates
+                    available_dates = []
+                    disabled_dates = []
+
+                    for span in date_spans:
+                        try:
+                            date_text = await span.inner_text()
+                            # Check if the parent element (button) is enabled/clickable
+                            parent = await span.evaluate("el => el.parentElement")
+                            if parent:
+                                # Check for disabled state or greyed out classes
+                                is_disabled = await span.evaluate(
+                                    '''el => {
+                                    const parent = el.parentElement;
+                                    if (!parent) return true;
+
+                                    // Check if parent button is disabled
+                                    if (parent.disabled || parent.hasAttribute('disabled')) return true;
+
+                                    // Check for disabled/inactive classes
+                                    const classes = parent.className || '';
+                                    if (classes.includes('disabled') || classes.includes('inactive')) return true;
+
+                                    // Check if element is clickable (has click events or is a button/link)
+                                    const tagName = parent.tagName.toLowerCase();
+                                    if (tagName === 'button' || tagName === 'a') {
+                                        // Additional check for visual disabled state
+                                        const style = getComputedStyle(parent);
+                                        if (style.pointerEvents === 'none' || style.opacity === '0.5') return true;
+                                    }
+
+                                    return false;
+                                }'''
+                                )
+
+                                if is_disabled:
+                                    disabled_dates.append(date_text)
+                                else:
+                                    available_dates.append(date_text)
+                            else:
+                                available_dates.append(
+                                    date_text
+                                )  # Fallback if no parent
+                        except:
+                            continue
+
+                    print(f"  Enabled dates: {available_dates}")
+                    if disabled_dates:
+                        print(f"  Disabled dates (skipped): {disabled_dates}")
+
+                    # Skip the first (earliest) date since it's already loaded during initial page load
+                    dates_to_click = available_dates[1:] if available_dates else []
+                    if available_dates:
+                        print(
+                            f"  Skipping first date '{available_dates[0]}' (already loaded)"
                         )
-                        soup = BeautifulSoup(driver.page_source, "html.parser")
-                    except Exception as exc:
-                        print(f"⚠️ Failed to load {name}: {exc}")
-                        continue
+                        print(
+                            f"  Will click remaining {len(dates_to_click)} dates: {dates_to_click}"
+                        )
 
-                    # ── stop-signal for outer loop ───────────────────────
-                    if self._has_no_screenings(soup):
-                        continue
+                    # Click through remaining available dates using fresh queries
+                    for j, target_date in enumerate(dates_to_click):
+                        try:
+                            print(
+                                f"    [{j+1}/{len(dates_to_click)}] Clicking on date: {target_date}"
+                            )
 
-                    for movie_block in soup.select("div.col-times"):
-                        info_movie = movie_block.select_one("div.info-movie strong")
-                        movie_title = info_movie.get_text(strip=True) if info_movie else "Unknown"
+                            # Re-query to get a fresh element reference
+                            fresh_date_spans = await page.query_selector_all(
+                                "span.dayScroll_number__o8i9s"
+                            )
+                            target_span = None
 
-                        for hall in movie_block.select("div.type-hall"):
-                            screen_name_li = hall.select_one("div.info-hall li:nth-child(2)")
-                            screen_name = screen_name_li.get_text(strip=True) if screen_name_li else "Unknown"
+                            for span in fresh_date_spans:
+                                try:
+                                    span_text = await span.inner_text()
+                                    if span_text == target_date:
+                                        target_span = span
+                                        break
+                                except:
+                                    continue
 
-                            hall_info_items = hall.select("div.info-hall li")
-                            seat_info_li = next((li for li in hall_info_items if "총" in li.text), None)
-                            total_seats = int(
-                                re.search(r"총\s*(\d+)", seat_info_li.text).group(1)) if seat_info_li else None
-
-                            if "아트하우스" not in screen_name.lower() and "art" not in screen_name.lower():
-                                # skip non-arthouse screens
+                            if not target_span:
+                                print(
+                                    f"    ✗ Could not find date {target_date} on current page"
+                                )
                                 continue
 
-                            timetable = hall.select_one("div.info-timetable")
-                            for li in timetable.select("li"):
-                                anchor = li.find(["a", "span"])
-                                if not anchor:
-                                    continue
+                            initial_count = len(theater_data)
+                            await target_span.click()
 
-                                start_raw = anchor.get("data-playstarttime") or ""
-                                end_raw = anchor.get("data-playendtime") or ""
-                                if not (start_raw.isdigit() and end_raw.isdigit() and len(start_raw) == 4):
-                                    continue
+                            # Smart wait for data load
+                            load_success = await wait_for_data_load(max_wait_seconds=8)
 
-                                start_time = f"{start_raw[:2]}:{start_raw[2:]}"
-                                end_time = f"{end_raw[:2]}:{end_raw[2:]}"
+                            new_count = len(theater_data)
+                            added_count = new_count - initial_count
 
-                                status_em = anchor.find("em")
-                                status = status_em.get_text(strip=True) if status_em else ""
-                                if status in {"마감", "매진"}:
-                                    continue
-
-                                href = anchor.get("href") if anchor.name == "a" else None
-                                book_url = f"https://www.cgv.co.kr{href}" if href else None
-
-                                match = re.search(r"PLAY_YMD=(\d{8})", href or "")
-                                if match:
-                                    ymd = match.group(1)
-                                    play_date = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}"
-                                else:
-                                    play_date = date.isoformat()
-
-                                remain_seats = int(
-                                    anchor.get("data-seatremaincnt")) if anchor.name == "a" and anchor.has_attr(
-                                    "data-seatremaincnt") else None
-
-                                dedup_key = (
-                                    code,
-                                    play_date,
-                                    screen_name.strip().lower(),
-                                    movie_title.strip().lower(),
-                                    start_time
+                            if load_success and added_count > 0:
+                                print(
+                                    f"    ✓ Added {added_count} new screenings (Total: {new_count})"
+                                )
+                            elif load_success and added_count == 0:
+                                print(
+                                    f"    ⚠ Date {target_date} loaded but no new screenings (Total: {new_count})"
+                                )
+                            else:
+                                print(
+                                    f"    ✗ Timeout waiting for date {target_date} (Total: {new_count})"
                                 )
 
-                                if dedup_key in seen_keys:
-                                    continue
-                                seen_keys.add(dedup_key)
+                        except Exception as e:
+                            print(f"    ✗ Failed to click date {target_date}: {e}")
+                            continue
 
-                                yield Screening(
-                                    provider=self.chain,
-                                    cinema_name=name,
-                                    cinema_code=code,
-                                    screen_name=screen_name,
-                                    movie_title=movie_title,
-                                    start_dt=start_time,
-                                    end_dt=end_time,
-                                    play_date=play_date,
-                                    crawl_ts=crawl_ts.isoformat(),
-                                    url=book_url,
-                                    remain_seat_cnt=remain_seats,
-                                    total_seat_cnt=total_seats
-                                )
-                                await asyncio.sleep(0)  # let event-loop breathe
+            except Exception as e:
+                print(f"  Error finding date elements: {e}")
+
+            # Process all collected screening data
+            print(f"  Total screenings collected: {len(theater_data)}")
+            for screening_data in theater_data:
+                if screening_data.get("sascnsGradNm") == "아트하우스":
+                    # Construct URL using the existing theater_name_for_click variable
+                    movie_url = (
+                        f'https://cgv.co.kr/cnm/movieBook/movie?'
+                        f'movNo={screening_data["movNo"]}&'
+                        f'scnYmd={screening_data["scnYmd"]}&'
+                        f'siteNo={screening_data["siteNo"]}&'
+                        f'siteNm={theater_name_for_click}&'
+                        f'scnsNo={screening_data["scnsNo"]}&'
+                        f'scnSseq={screening_data["scnSseq"]}'
+                    )
+
+                    screenings.append(
+                        Screening(
+                            provider=self.chain,
+                            cinema_name=theater.name,
+                            cinema_code=screening_data["siteNo"],
+                            screen_name=screening_data["scnsNm"],
+                            movie_title=screening_data["movNm"],
+                            start_dt=f'{screening_data["scnsrtTm"][:2]}:{screening_data["scnsrtTm"][2:]}',
+                            end_dt=f'{screening_data["scnendTm"][:2]}:{screening_data["scnendTm"][2:]}',
+                            play_date=f'{screening_data["scnYmd"][:4]}-{screening_data["scnYmd"][4:6]}-{screening_data["scnYmd"][6:]}',
+                            crawl_ts=crawl_ts.isoformat(),
+                            url=movie_url,
+                            remain_seat_cnt=int(screening_data["frSeatCnt"]),
+                            total_seat_cnt=int(screening_data["stcnt"]),
+                        )
+                    )
+
+            page.remove_listener("response", handle_response)
+            print(f"  Completed theater {theater.name}")
+
+        except Exception as e:
+            print(f"  ERROR processing theater {theater.name}: {e}")
         finally:
-            driver.quit()
+            # Always close the context
+            await context.close()
+        return screenings
+
+    async def iter(self, date: dt.date) -> Iterable[Screening]:
+        """A-sync generator yielding Screening objects"""
+        # This method is no longer used by the CGV crawler's run method
+        # but is kept for compatibility with the BaseCrawler interface.
+        yield
+        return
