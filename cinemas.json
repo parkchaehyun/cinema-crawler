@@ -101,20 +101,18 @@
         "brand_cd": "indieart"
     },
     {
-        "cinema_code": "000102",
+        "cinema_code": "121",
         "name": "KU시네마테크",
-        "chain": "Dtryx",
+        "chain": "Moviee",
         "latitude": 37.5427,
-        "longitude": 127.0732,
-        "brand_cd": "etc"
+        "longitude": 127.0732
     },
     {
-        "cinema_code": "000089",
+        "cinema_code": "123",
         "name": "KT&G 상상마당 시네마",
-        "chain": "Dtryx",
+        "chain": "Moviee",
         "latitude": 37.5510,
-        "longitude": 126.9210,
-        "brand_cd": "etc"
+        "longitude": 126.9210
     },
     {
         "cinema_code": "000003",
@@ -141,12 +139,11 @@
         "brand_cd": "indieart"
     },
     {
-        "cinema_code": "000070",
+        "cinema_code": "130",
         "name": "필름포럼",
-        "chain": "Dtryx",
+        "chain": "Moviee",
         "latitude": 37.5637,
-        "longitude": 126.9440,
-        "brand_cd": "indieart"
+        "longitude": 126.9440
     },
     {
         "cinema_code": "000072",
