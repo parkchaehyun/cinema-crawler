@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import os
+from pathlib import Path
 from typing import Iterable
 
 from playwright.async_api import async_playwright, Browser
@@ -11,8 +13,22 @@ from models import Screening, Chain, Cinema
 from crawlers.supabase_client import SupabaseClient
 
 
+class CGVAccessBlockedError(RuntimeError):
+    """Raised when CGV serves an access-block page."""
+
+
 class CGVCrawler(BaseCrawler):
     chain: Chain = "CGV"
+    block_markers = (
+        "비정상적으로 CGV에 접속한 것이 확인되어 이용이 제한되었어요",
+        "RAY_ID",
+        "CLIENT_IP",
+    )
+    modal_selector_candidates = (
+        ".cgv-bot-modal.active",
+        ".cgv-bot-modal",
+        "div[class*='bot-modal']",
+    )
 
     def __init__(self, supabase: SupabaseClient, batch_size: int = 10):
         super().__init__(supabase=supabase, batch_size=batch_size)
@@ -24,10 +40,11 @@ class CGVCrawler(BaseCrawler):
     ) -> list[Screening]:
         screenings = []
         crawl_ts = dt.datetime.utcnow()
+        headless = os.getenv("CGV_HEADLESS", "1").lower() not in {"0", "false", "no"}
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
-                headless=True,
+                headless=headless,
                 args=[
                     "--disable-gpu",
                     "--no-sandbox",
@@ -62,13 +79,65 @@ class CGVCrawler(BaseCrawler):
             for i in range(0, len(self.theaters), self.batch_size):
                 batch = self.theaters[i : i + self.batch_size]
                 for theater_index, theater in enumerate(batch):
-                    theater_screenings = await self.crawl_theater(
-                        browser, theater, theater_index, len(batch), crawl_ts
-                    )
+                    try:
+                        theater_screenings = await self.crawl_theater(
+                            browser, theater, theater_index, len(batch), crawl_ts
+                        )
+                    except CGVAccessBlockedError as exc:
+                        print(f"❌ {exc}")
+                        print("❌ Stopping CGV crawl early due to access block.")
+                        return screenings
                     screenings.extend(theater_screenings)
                     await asyncio.sleep(0)
 
         return screenings
+
+    async def _is_access_blocked(self, page) -> bool:
+        try:
+            text = await page.inner_text("body")
+        except Exception:
+            return False
+        normalized = (text or "").replace(" ", "")
+        return any(marker.replace(" ", "") in normalized for marker in self.block_markers)
+
+    async def _wait_for_theater_modal(self, page) -> str:
+        for selector in self.modal_selector_candidates:
+            try:
+                await page.wait_for_selector(selector, timeout=7000)
+                return selector
+            except Exception:
+                if await self._is_access_blocked(page):
+                    raise CGVAccessBlockedError(
+                        "CGV blocked automated access on /cnm/movieBook/cinema."
+                    )
+
+        if await self._is_access_blocked(page):
+            raise CGVAccessBlockedError(
+                "CGV blocked automated access on /cnm/movieBook/cinema."
+            )
+        raise RuntimeError(
+            "CGV theater modal not found. Selector may have changed."
+        )
+
+    async def _dump_debug_artifacts(self, page, theater_code: str):
+        debug_dir = Path("tmp_chain_samples_escalated")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+        screenshot_path = debug_dir / f"cgv_debug_{theater_code}_{timestamp}.png"
+        html_path = debug_dir / f"cgv_debug_{theater_code}_{timestamp}.html"
+
+        try:
+            await page.screenshot(path=str(screenshot_path), full_page=True)
+            print(f"  Saved debug screenshot: {screenshot_path}")
+        except Exception:
+            pass
+
+        try:
+            html_path.write_text(await page.content(), encoding="utf-8")
+            print(f"  Saved debug html: {html_path}")
+        except Exception:
+            pass
 
     async def crawl_theater(
         self,
@@ -78,8 +147,17 @@ class CGVCrawler(BaseCrawler):
         batch_size: int,
         crawl_ts: dt.datetime,
     ) -> list[Screening]:
-        # Create a new browser context for each theater for isolation
-        context = await browser.new_context()
+        # Create a new browser context with a realistic User-Agent and locale
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800},
+            locale="ko-KR",
+            timezone_id="Asia/Seoul",
+        )
+        # Inject basic stealth to hide navigator.webdriver
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
         page = await context.new_page()
         screenings = []
 
@@ -130,13 +208,33 @@ class CGVCrawler(BaseCrawler):
 
                 return False
 
+            async def is_date_span_disabled(span) -> bool:
+                try:
+                    return await span.evaluate(
+                        """el => {
+                        const parent = el.parentElement;
+                        if (!parent) return false;
+                        if (parent.disabled || parent.hasAttribute('disabled')) return true;
+                        const classes = parent.className || '';
+                        if (classes.includes('disabled') || classes.includes('inactive')) return true;
+                        const style = getComputedStyle(parent);
+                        if (style.pointerEvents === 'none') return true;
+                        return false;
+                    }"""
+                    )
+                except Exception:
+                    return True
+
             page.on("response", handle_response)
 
             print(f"  Navigating to CGV cinema page...")
-            await page.goto("https://cgv.co.kr/cnm/movieBook/cinema")
-            await page.wait_for_selector(".cgv-bot-modal.active")
+            await page.goto(
+                "https://cgv.co.kr/cnm/movieBook/cinema",
+                wait_until="domcontentloaded",
+            )
+            modal_selector = await self._wait_for_theater_modal(page)
             print(f"  Clicking on theater: {theater_name_for_click}")
-            await page.locator(".cgv-bot-modal.active").locator(
+            await page.locator(modal_selector).first.locator(
                 f'text="{theater_name_for_click}"'
             ).click()
 
@@ -165,48 +263,31 @@ class CGVCrawler(BaseCrawler):
                     for span in date_spans:
                         try:
                             date_text = await span.inner_text()
-                            # Check if the parent element (button) is enabled/clickable
-                            parent = await span.evaluate("el => el.parentElement")
-                            if parent:
-                                # Check for disabled state or greyed out classes
-                                is_disabled = await span.evaluate(
-                                    '''el => {
-                                    const parent = el.parentElement;
-                                    if (!parent) return true;
-
-                                    // Check if parent button is disabled
-                                    if (parent.disabled || parent.hasAttribute('disabled')) return true;
-
-                                    // Check for disabled/inactive classes
-                                    const classes = parent.className || '';
-                                    if (classes.includes('disabled') || classes.includes('inactive')) return true;
-
-                                    // Check if element is clickable (has click events or is a button/link)
-                                    const tagName = parent.tagName.toLowerCase();
-                                    if (tagName === 'button' || tagName === 'a') {
-                                        // Additional check for visual disabled state
-                                        const style = getComputedStyle(parent);
-                                        if (style.pointerEvents === 'none' || style.opacity === '0.5') return true;
-                                    }
-
-                                    return false;
-                                }'''
-                                )
-
-                                if is_disabled:
-                                    disabled_dates.append(date_text)
-                                else:
-                                    available_dates.append(date_text)
+                            if await is_date_span_disabled(span):
+                                disabled_dates.append(date_text)
                             else:
-                                available_dates.append(
-                                    date_text
-                                )  # Fallback if no parent
+                                available_dates.append(date_text)
                         except:
                             continue
 
+                    # Deduplicate while preserving order.
+                    def unique(seq):
+                        out = []
+                        seen = set()
+                        for item in seq:
+                            if item in seen:
+                                continue
+                            seen.add(item)
+                            out.append(item)
+                        return out
+
+                    available_dates = unique(available_dates)
+                    disabled_dates = set(disabled_dates)
+                    available_dates = [d for d in available_dates if d not in disabled_dates]
+
                     print(f"  Enabled dates: {available_dates}")
                     if disabled_dates:
-                        print(f"  Disabled dates (skipped): {disabled_dates}")
+                        print(f"  Disabled dates (skipped): {sorted(disabled_dates)}")
 
                     # Skip the first (earliest) date since it's already loaded during initial page load
                     dates_to_click = available_dates[1:] if available_dates else []
@@ -234,7 +315,10 @@ class CGVCrawler(BaseCrawler):
                             for span in fresh_date_spans:
                                 try:
                                     span_text = await span.inner_text()
-                                    if span_text == target_date:
+                                    if (
+                                        span_text == target_date
+                                        and not await is_date_span_disabled(span)
+                                    ):
                                         target_span = span
                                         break
                                 except:
@@ -247,7 +331,7 @@ class CGVCrawler(BaseCrawler):
                                 continue
 
                             initial_count = len(theater_data)
-                            await target_span.click()
+                            await target_span.click(timeout=3000)
 
                             # Smart wait for data load
                             load_success = await wait_for_data_load(max_wait_seconds=8)
@@ -310,9 +394,16 @@ class CGVCrawler(BaseCrawler):
             page.remove_listener("response", handle_response)
             print(f"  Completed theater {theater.name}")
 
+        except CGVAccessBlockedError:
+            raise
         except Exception as e:
             print(f"  ERROR processing theater {theater.name}: {e}")
+            await self._dump_debug_artifacts(page, theater.cinema_code)
         finally:
+            try:
+                page.remove_listener("response", handle_response)
+            except Exception:
+                pass
             # Always close the context
             await context.close()
         return screenings
