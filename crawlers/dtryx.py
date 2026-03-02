@@ -16,11 +16,12 @@ class DtryxCrawler(BaseCrawler):
         }
 
         for theater in self.theaters:
+            brand_cd = theater.brand_cd or "indieart"
             params = {
                 "cgid": "FE8EF4D2-F22D-4802-A39A-D58F23A29C1E",
                 "ssid": "",
                 "tokn": "",
-                "BrandCd": "indieart",
+                "BrandCd": brand_cd,
                 "CinemaCd": theater.cinema_code,
                 "PlaySDT": date.isoformat(),
                 "_": str(int(dt.datetime.now().timestamp() * 1000))

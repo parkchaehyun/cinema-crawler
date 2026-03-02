@@ -63,11 +63,12 @@
         "longitude": 127.0580
     },
     {
-        "cinema_code": "1562",
+        "cinema_code": "000162",
         "name": "아트나인",
-        "chain": "Megabox",
+        "chain": "Dtryx",
         "latitude": 37.4846,
-        "longitude": 126.9816
+        "longitude": 126.9816,
+        "brand_cd": "etc"
     },
     {
         "cinema_code": "1|1|1015",
