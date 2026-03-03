@@ -2,110 +2,133 @@
 
 ## Overview
 
-This repository contains two related AWS Lambda functions packaged as Docker images:
+This repo contains two AWS Lambda container functions:
 
-1. **Crawler Lambda**
+1. `crawler` Lambda
+- Crawls screenings from: `CGV`, `Megabox`, `Lotte`, `Dtryx`, `Moviee`, `TinyTicket`, `KOFA`
+- Normalizes rows into a shared `Screening` model
+- Upserts into Supabase (`screenings`, with `cinemas` as reference data)
 
-   * Scrapes art-film screening schedules from multiple chains (CGV, Megabox, Lotte, Dtryx, TinyTicket, Moonhwain, KOFA)
-   * Writes screening records into a Supabase PostgreSQL backend
-
-2. **TMDB Poster Updater Lambda**
-
-   * Queries Supabase for all movies with `poster_url IS NULL`
-   * Calls TMDB’s Search API (using a Bearer token) for each title
-   * Updates Supabase so that each movie row gets its `poster_url` filled in
-
-These two functions are scheduled to run every day to keep screenings and poster images up to date.
+2. `tmdb` Lambda
+- Finds upcoming movies that still have no `tmdb_id`
+- Searches TMDB using canonical EN/KO title seeds
+- Writes `tmdb_id` + `poster_url` back to `movies`
+- Optionally reconciles duplicate movie rows via DB RPCs
 
 ---
 
-## Architecture
+## Current Architecture
 
-```
-┌──────────────┐     ┌───────────────────────────┐
-│ EventBridge  │     │  Lambda (Crawler Image)   │
-│ Rule [cron]  ├────▶|  (Python 3.11 + Chrome)   │
-└──────────────┘     └───────────────────────────┘
-                                   │
-                                   ▼
-                            ┌───────────────┐
-                            │   Supabase    │
-                            │  PostgreSQL   │
-                            └───────────────┘
-                                   ▲
-                                   │
-┌──────────────┐     ┌────────────────────────────┐
-│ EventBridge  │     │ Lambda (TMDB-Updater Image)│
-│ Rule [cron]  ├────▶|  (Python 3.11 + httpx)     │
-└──────────────┘     └────────────────────────────┘
+```text
+EventBridge (schedule)
+  -> Lambda container (crawler)
+  -> Supabase (screenings/cinemas/movies/...)
+
+EventBridge (schedule)
+  -> Lambda container (tmdb updater)
+  -> Supabase movies (tmdb_id, poster_url)
 ```
 
-* **Crawler Lambda**
-
-  * Runs headless Chrome/Selenium in a Python 3.11 container
-  * Crawls multiple cinema-chain websites, parses screening times, and upserts into Supabase
-  * Requires `SUPABASE_URL`, `SUPABASE_KEY`, and Chrome binary in `/opt/chrome`
-
-* **TMDB Poster Updater Lambda**
-
-  * Runs a lightweight Python 3.10 container with only `httpx` and `supabase-py`
-  * Queries Supabase for all movies where `poster_url IS NULL`, then calls TMDB’s `/search/movie` using a Bearer token
-  * Updates each row’s `poster_url` in Supabase
+Key runtime facts:
+- Crawler image uses Playwright Python base image with Chromium.
+- TMDB image is lightweight (`public.ecr.aws/lambda/python:3.11`).
+- Default crawler event:
+  - `chains`: `["CGV", "Megabox", "Lotte", "TinyTicket", "Dtryx", "Moviee", "KOFA"]`
+  - `max_days`: `14`
 
 ---
 
 ## Prerequisites
 
-* **Docker 20.10+**
-* **AWS CLI v2**
-* A **Supabase** project with a `movies` table defined as:
+- Docker 20.10+
+- AWS CLI v2 (for ECR/Lambda deployment)
+- Supabase project with the required schema/views/functions
+- TMDB Bearer token (`TMDB_API_KEY`)
 
-  ```sql
-  CREATE TABLE IF NOT EXISTS public.movies (
-    id         BIGSERIAL PRIMARY KEY,
-    title      TEXT NOT NULL,
-    poster_url TEXT
-  );
-  ```
-* **TMDB API token**
+---
+
+## Data Model (Code)
+
+`models.py` currently defines:
+- `Chain = Literal["CGV", "Megabox", "Lotte", "TinyTicket", "Dtryx", "Moviee", "KOFA"]`
+- `Screening` fields include:
+  - core fields: `provider`, `cinema_name`, `cinema_code`, `screen_name`, `movie_title`, `play_date`, `start_dt`, `end_dt`
+  - enrichment: `movie_title_en`, `source_movie_code`, `source_year`, `source_director`
+  - curation: `is_core_art_screen`
+  - metadata: `crawl_ts`, `url`, `remain_seat_cnt`, `total_seat_cnt`
+
+---
+
+## Environment Variables
+
+Required:
+- `SUPABASE_URL`
+- `SUPABASE_KEY`
+
+Crawler optional:
+- `KOFA_SERVICE_KEY` (required for KOFA data)
+- `WEBSHARE_API_KEY` (optional proxy pool for CGV)
+- `CGV_HEADLESS` (`1` default, set `0` for headed local debug)
+- `CGV_BANDWIDTH_SAVER` (`0` default, set `1` to block images/fonts/trackers)
+
+TMDB updater required:
+- `TMDB_API_KEY` (TMDB v4 Bearer token)
+
+---
+
+## Database Expectations (Supabase)
+
+This codebase assumes your DB already has the schema/views/functions used by the app and updater (migrations are in `migrations/`).
+
+At minimum, current code expects:
+- `screenings` table with fields used by crawler payload (including `movie_title_en`, `source_movie_code`, `source_year`, `source_director`, `is_core_art_screen`)
+- `cinemas` reference table
+- `movies` table with `id`, `title`, `canonical_title`, and `tmdb_id`/`poster_url` fields used by updater
+- `upcoming_movie_ids` view (used by poster updater)
+
+Optional but used when present:
+- RPC `reconcile_movies_with_tmdb_anchor()`
+- RPC `merge_movie_rows(keep_movie_id, drop_movie_id)`
+
+If your DB is older, apply the SQL in `migrations/` before deploying these images.
 
 ---
 
 ## Repository Structure
 
-```
+```text
 root/
 ├── crawlers/
-│   ├── base.py                  # base class for all crawlers
-│   ├── cgv.py                   # CGV crawler
-│   ├── crawler_registry.py      # registry that returns each chain’s crawler class
-│   ├── dtryx.py                 # Dtryx crawler
-│   ├── kofa.py                  # KOFA crawler
-│   ├── lambda_function.py       # entrypoint for the Crawler Lambda
-│   ├── lotte.py                 # Lotte Cinema crawler
-│   ├── megabox.py               # Megabox crawler
-│   ├── moonhwain.py             # Moonhwain crawler
-│   ├── offline_test.py          # local test script for crawlers
-│   ├── poster_updater.py        # entrypoint for the TMDB-Updater Lambda
-│   ├── supabase_client.py       # wrapper for Supabase REST interactions
-│   ├── tinyticket.py            # TinyTicket crawler
-│
-├── chrome-deps.txt              # OS packages required by headless Chrome
-├── Dockerfile                   # multi-stage Dockerfile (Stage 1 = crawler, Stage 2 = tmdb-updater)
-├── install-browser.sh           # script to install headless Chrome/Chromedriver
-├── models.py                    # Pydantic data models (Screening, Chain, etc.)
-├── README.md                    # (this file)
-├── requirements-crawler.txt     # pip dependencies for the Crawler (selenium, bs4, supabase-py, etc.)
-└── requirements-tmdb.txt        # pip dependencies for the Poster Updater (supabase-py, httpx)
+│   ├── base.py
+│   ├── cgv.py
+│   ├── crawler_registry.py
+│   ├── dtryx.py
+│   ├── kofa.py
+│   ├── lambda_function.py
+│   ├── lotte.py
+│   ├── megabox.py
+│   ├── moviee.py
+│   ├── offline_test.py
+│   ├── poster_updater.py
+│   ├── supabase_client.py
+│   └── tinyticket.py
+├── migrations/
+├── cinemas.json
+├── models.py
+├── requirements-crawler.txt
+├── requirements-tmdb.txt
+├── Dockerfile
+└── README.md
 ```
+
+Note:
+- `moonhwain.py` may exist as legacy/local code, but it is not registered in current `CrawlerRegistry`.
 
 ---
 
-## Building Docker Images
+## Build Images
 
-Both Lambda functions are packaged as separate Docker images from the same `Dockerfile`. You can build each stage individually:
-
-### 2.1. Build the Crawler Image
+### Crawler image
 
 ```bash
 docker buildx build \
@@ -116,13 +139,7 @@ docker buildx build \
   .
 ```
 
-* **`--platform linux/amd64`**: ensures the image is built for x86\_64 (AWS Lambda’s CPU architecture).
-* **`--target crawler`**: picks the crawler runtime stage (Playwright base + crawler code).
-* **`--load`**: loads the resulting image into your local Docker daemon as `lambda-crawler:latest`.
-
-Verify with `docker images | grep lambda-crawler`.
-
-### 2.2. Build the TMDB Updater Image
+### TMDB updater image
 
 ```bash
 docker buildx build \
@@ -133,71 +150,49 @@ docker buildx build \
   .
 ```
 
-* **`--target tmdb`**: picks the TMDB updater stage (Python 3.11 + `httpx`, `supabase-py`, and `poster_updater.py`).
-* **`--load`**: loads as `lambda-tmdb:latest` locally.
+---
 
-Verify with `docker images | grep lambda-tmdb`.
+## Deploy (ECR/Lambda)
+
+1. Push `lambda-crawler:latest` and `lambda-tmdb:latest` to ECR
+2. Point each Lambda function to the new image URI
+3. Set environment variables per function
+4. Trigger a manual invoke to verify logs before enabling schedules
 
 ---
 
-## AWS Deployment (ECR & Lambda)
+## Local Runs
 
-### 3.1. Create an ECR Repository
-
-Replace `<your-region>` and `<account-id>` as needed:
+### Run a single chain quickly
 
 ```bash
-aws ecr create-repository \
-  --repository-name poster-updater \
-  --region ap-northeast-2
+PYTHONPATH=. ./.venv/bin/python -m crawlers.offline_test
 ```
 
-Note the returned `repositoryUri`, e.g.:
+Edit `CHAIN = "..."` in `crawlers/offline_test.py`.
 
-```
-123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/poster-updater
-```
-
-For the crawler, you might create a separate repo:
+### Invoke Lambda handler locally
 
 ```bash
-aws ecr create-repository \
-  --repository-name cinema-crawler \
-  --region ap-northeast-2
-```
-
-### 3.2. Authenticate & Push Images
-
-#### 3.2.1. Authenticate to ECR
-
-```bash
-aws ecr get-login-password --region ap-northeast-2 \
-  | docker login --username AWS --password-stdin 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com
-```
-
-#### 3.2.2. Tag & Push Crawler Image
-
-```bash
-docker tag lambda-crawler:latest \
-  123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/cinema-crawler:latest
-
-docker push 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/cinema-crawler:latest
-```
-
-#### 3.2.3. Tag & Push TMDB Updater Image
-
-```bash
-docker tag lambda-tmdb:latest \
-  123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/poster-updater:latest
-
-docker push 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/poster-updater:latest
+python - <<'PY'
+from crawlers.lambda_function import lambda_handler
+print(lambda_handler({"chains":["CGV"],"max_days":14}, None))
+PY
 ```
 
 ---
 
+## Notes
+
+- CGV anti-bot behavior can vary by environment/IP. Proxy and bandwidth-saver flags are CGV-specific knobs.
+- Poster updater now focuses on upcoming movies via `upcoming_movie_ids`, not all historical movies.
+
+---
 
 ## License
 
-The MIT License (MIT)
+[PolyForm Noncommercial License 1.0.0](./LICENSE)
 
-Copyright (c) 2025 Chaehyun Park
+Commercial use is not permitted. For commercial licensing, contact the repository owner.
+
+Copyright (c) 2026 Chaehyun Park
