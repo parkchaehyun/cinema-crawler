@@ -2,6 +2,7 @@ from crawlers.base import BaseCrawler
 from models import Screening, Chain
 import httpx
 import datetime as dt
+import html
 from typing import Iterable
 
 class MegaboxCrawler(BaseCrawler):
@@ -47,7 +48,7 @@ class MegaboxCrawler(BaseCrawler):
                     continue
 
                 for item in data.get("megaMap", {}).get("movieFormList", []):
-                    cinema_name = item["brchNm"]
+                    cinema_name = html.unescape(item["brchNm"]).strip()
                     screen_name = item["theabExpoNm"].strip()
 
                     # At 코엑스, only include art screens
@@ -62,8 +63,8 @@ class MegaboxCrawler(BaseCrawler):
                         cinema_name=cinema_name,
                         cinema_code=item["brchNo"],
                         screen_name=screen_name,
-                        movie_title=item["rpstMovieNm"].strip(),
-                        movie_title_en=(item.get("movieEngNm") or "").strip() or None,
+                        movie_title=html.unescape(item["rpstMovieNm"]).strip(),
+                        movie_title_en=html.unescape(item.get("movieEngNm") or "").strip() or None,
                         source_movie_code=str(
                             item.get("rpstMovieNo") or item.get("movieNo") or ""
                         ).strip() or None,
