@@ -72,6 +72,12 @@ class LotteCinemaCrawler(BaseCrawler):
                             cinema_code=theater.cinema_code,
                             screen_name=item["ScreenNameKR"],
                             movie_title=item["MovieNameKR"].strip(),
+                            movie_title_en=(item.get("MovieNameUS") or "").strip() or None,
+                            source_movie_code=str(
+                                item.get("RepresentationMovieCode")
+                                or item.get("MovieCode")
+                                or ""
+                            ).strip() or None,
                             play_date=play_date,
                             start_dt=start_time,
                             end_dt=item.get("EndTime"),

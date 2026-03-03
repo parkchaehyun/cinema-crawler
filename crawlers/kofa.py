@@ -66,6 +66,11 @@ class KOFACrawler(BaseCrawler):
             else:
                 screen_name = "Main"
 
+            source_year = None
+            raw_year = (item.get("cProductionYear") or "").strip()
+            if raw_year.isdigit():
+                source_year = int(raw_year)
+
             results.append(
                 Screening(
                     provider     = self.chain,
@@ -73,6 +78,10 @@ class KOFACrawler(BaseCrawler):
                     cinema_code  = "KOFA",
                     screen_name  = screen_name,
                     movie_title  = item["cMovieName"].strip(),
+                    movie_title_en = (item.get("cMovieNameEng") or "").strip() or None,
+                    source_movie_code = (item.get("cMovieId") or "").strip() or None,
+                    source_year = source_year,
+                    source_director = (item.get("cDirector") or "").strip() or None,
                     play_date    = play_date.isoformat(),
                     start_dt     = item["cMovieTime"],
                     end_dt       = end_dt,
@@ -86,4 +95,3 @@ class KOFACrawler(BaseCrawler):
         # satisfy BaseCrawler’s abstract method
         for screening in await self.run(start_date=date, max_days=1):
             yield screening
-

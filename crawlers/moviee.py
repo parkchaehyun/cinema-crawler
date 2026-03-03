@@ -155,6 +155,7 @@ class MovieeCrawler(BaseCrawler):
                         cinema_code=cinema_code,
                         screen_name=screen_name,
                         movie_title=movie_title,
+                        source_movie_code=movie_id or None,
                         play_date=play_date,
                         start_dt=start_dt,
                         end_dt=end_dt,

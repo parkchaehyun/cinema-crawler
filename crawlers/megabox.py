@@ -63,6 +63,10 @@ class MegaboxCrawler(BaseCrawler):
                         cinema_code=item["brchNo"],
                         screen_name=screen_name,
                         movie_title=item["rpstMovieNm"].strip(),
+                        movie_title_en=(item.get("movieEngNm") or "").strip() or None,
+                        source_movie_code=str(
+                            item.get("rpstMovieNo") or item.get("movieNo") or ""
+                        ).strip() or None,
                         play_date=date.isoformat(),
                         start_dt=item["playStartTime"],
                         end_dt=item["playEndTime"],

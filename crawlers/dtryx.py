@@ -53,6 +53,8 @@ class DtryxCrawler(BaseCrawler):
                         cinema_code=item["CinemaCd"],
                         screen_name=item["ScreenNm"],
                         movie_title=item["MovieNmNat"].strip(),
+                        movie_title_en=(item.get("MovieNmEng") or "").strip() or None,
+                        source_movie_code=str(item.get("MovieCd") or "").strip() or None,
                         play_date=date.isoformat(),
                         start_dt=item["StartTime"],
                         end_dt=item["EndTime"],

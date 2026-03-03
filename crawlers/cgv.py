@@ -381,6 +381,10 @@ class CGVCrawler(BaseCrawler):
                             cinema_code=screening_data["siteNo"],
                             screen_name=screening_data["scnsNm"],
                             movie_title=screening_data["movNm"],
+                            movie_title_en=(screening_data.get("movEnm") or "").strip() or None,
+                            source_movie_code=str(
+                                screening_data.get("movNo") or ""
+                            ).strip() or None,
                             start_dt=f'{screening_data["scnsrtTm"][:2]}:{screening_data["scnsrtTm"][2:]}',
                             end_dt=f'{screening_data["scnendTm"][:2]}:{screening_data["scnendTm"][2:]}',
                             play_date=f'{screening_data["scnYmd"][:4]}-{screening_data["scnYmd"][4:6]}-{screening_data["scnYmd"][6:]}',
