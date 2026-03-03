@@ -1,8 +1,9 @@
 from supabase import create_client, Client
 import os
-from datetime import datetime
-from typing import List, Dict, Any
-from models import Chain, Screening
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from models import Screening
 
 
 class SupabaseClient:
@@ -14,7 +15,7 @@ class SupabaseClient:
             raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set")
         self.client: Client = create_client(url, key)
 
-    def insert_screenings(self, data: list[Screening]):
+    def insert_screenings(self, data: list["Screening"]):
         """Insert screenings into Supabase."""
         unique_map = {}
         for s in data:
@@ -29,7 +30,7 @@ class SupabaseClient:
             .execute()
         )
 
-    def fetch_cinemas(self, chain: Chain | None = None) -> List[Dict[str, Any]]:
+    def fetch_cinemas(self, chain: str | None = None) -> list[dict[str, Any]]:
         """Fetch cinemas from Supabase, optionally filtered by chain."""
         query = self.client.table("cinemas").select("*")
         if chain:
@@ -37,6 +38,6 @@ class SupabaseClient:
         response = query.execute()
         return response.data
 
-    def insert_cinemas(self, cinemas: List[Dict[str, Any]]) -> None:
+    def insert_cinemas(self, cinemas: list[dict[str, Any]]) -> None:
         """Insert cinemas into Supabase."""
         self.client.table("cinemas").insert(cinemas).execute()
