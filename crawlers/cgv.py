@@ -398,48 +398,79 @@ class CGVCrawler(BaseCrawler):
                 if len(date_spans) == 0:
                     print(f"  WARNING: No date navigation elements found!")
                 else:
-                    # Get only ENABLED/CLICKABLE date texts to avoid disabled dates
-                    available_dates = []
-                    disabled_dates = []
+                    # Track enabled/disabled state per visible date label.
+                    # If the same label appears multiple times (carousel clones/month boundary),
+                    # treat it as enabled when ANY instance is clickable.
+                    date_states: dict[str, dict[str, bool]] = {}
+                    ordered_dates: list[str] = []
 
                     for span in date_spans:
                         try:
-                            date_text = await span.inner_text()
-                            if await is_date_span_disabled(span):
-                                disabled_dates.append(date_text)
+                            date_text = (await span.inner_text()).strip()
+                            if not date_text:
+                                continue
+                            is_disabled = await is_date_span_disabled(span)
+
+                            if date_text not in date_states:
+                                date_states[date_text] = {
+                                    "enabled": False,
+                                    "disabled": False,
+                                }
+                                ordered_dates.append(date_text)
+
+                            if is_disabled:
+                                date_states[date_text]["disabled"] = True
                             else:
-                                available_dates.append(date_text)
-                        except:
+                                date_states[date_text]["enabled"] = True
+                        except Exception:
                             continue
 
-                    # Deduplicate while preserving order.
-                    def unique(seq):
-                        out = []
-                        seen = set()
-                        for item in seq:
-                            if item in seen:
-                                continue
-                            seen.add(item)
-                            out.append(item)
-                        return out
-
-                    available_dates = unique(available_dates)
-                    disabled_dates = set(disabled_dates)
-                    available_dates = [d for d in available_dates if d not in disabled_dates]
+                    available_dates = [
+                        d for d in ordered_dates if date_states[d]["enabled"]
+                    ]
+                    disabled_only_dates = sorted(
+                        [
+                            d
+                            for d in ordered_dates
+                            if date_states[d]["disabled"] and not date_states[d]["enabled"]
+                        ]
+                    )
 
                     print(f"  Enabled dates: {available_dates}")
-                    if disabled_dates:
-                        print(f"  Disabled dates (skipped): {sorted(disabled_dates)}")
+                    if disabled_only_dates:
+                        print(f"  Disabled dates (skipped): {disabled_only_dates}")
 
-                    # Skip the first (earliest) date since it's already loaded during initial page load
-                    dates_to_click = available_dates[1:] if available_dates else []
-                    if available_dates:
-                        print(
-                            f"  Skipping first date '{available_dates[0]}' (already loaded)"
-                        )
-                        print(
-                            f"  Will click remaining {len(dates_to_click)} dates: {dates_to_click}"
-                        )
+                    # Skip only the ACTUAL initially loaded date, not blindly available_dates[0].
+                    loaded_date_label = None
+                    if theater_data:
+                        loaded_scn_ymd = str(theater_data[0].get("scnYmd") or "").strip()
+                        if len(loaded_scn_ymd) == 8 and loaded_scn_ymd.isdigit():
+                            loaded_date_label = loaded_scn_ymd[6:]
+
+                    dates_to_click = []
+                    loaded_date_skipped = False
+                    for date_label in available_dates:
+                        if (
+                            not loaded_date_skipped
+                            and loaded_date_label is not None
+                            and date_label == loaded_date_label
+                        ):
+                            loaded_date_skipped = True
+                            continue
+                        dates_to_click.append(date_label)
+
+                    if loaded_date_label:
+                        if loaded_date_skipped:
+                            print(
+                                f"  Skipping loaded date '{loaded_date_label}'"
+                            )
+                        else:
+                            print(
+                                f"  Loaded date '{loaded_date_label}' not found among enabled dates"
+                            )
+                    print(
+                        f"  Will click remaining {len(dates_to_click)} dates: {dates_to_click}"
+                    )
 
                     # Click through remaining available dates using fresh queries
                     for j, target_date in enumerate(dates_to_click):
@@ -504,38 +535,40 @@ class CGVCrawler(BaseCrawler):
             # Process all collected screening data
             print(f"  Total screenings collected: {len(theater_data)}")
             for screening_data in theater_data:
-                if screening_data.get("sascnsGradNm") == "아트하우스":
-                    # Construct URL using the existing theater_name_for_click variable
-                    movie_url = (
-                        f'https://cgv.co.kr/cnm/movieBook/movie?'
-                        f'movNo={screening_data["movNo"]}&'
-                        f'scnYmd={screening_data["scnYmd"]}&'
-                        f'siteNo={screening_data["siteNo"]}&'
-                        f'siteNm={theater_name_for_click}&'
-                        f'scnsNo={screening_data["scnsNo"]}&'
-                        f'scnSseq={screening_data["scnSseq"]}'
-                    )
+                is_core_art = screening_data.get("sascnsGradNm") == "아트하우스"
+                movie_url = (
+                    f'https://cgv.co.kr/cnm/movieBook/movie?'
+                    f'movNo={screening_data["movNo"]}&'
+                    f'scnYmd={screening_data["scnYmd"]}&'
+                    f'siteNo={screening_data["siteNo"]}&'
+                    f'siteNm={theater_name_for_click}&'
+                    f'scnsNo={screening_data["scnsNo"]}&'
+                    f'scnSseq={screening_data["scnSseq"]}'
+                )
 
-                    screenings.append(
-                        Screening(
-                            provider=self.chain,
-                            cinema_name=theater.name,
-                            cinema_code=screening_data["siteNo"],
-                            screen_name=screening_data["scnsNm"],
-                            movie_title=screening_data["movNm"],
-                            movie_title_en=(screening_data.get("movEnm") or "").strip() or None,
-                            source_movie_code=str(
-                                screening_data.get("movNo") or ""
-                            ).strip() or None,
-                            start_dt=f'{screening_data["scnsrtTm"][:2]}:{screening_data["scnsrtTm"][2:]}',
-                            end_dt=f'{screening_data["scnendTm"][:2]}:{screening_data["scnendTm"][2:]}',
-                            play_date=f'{screening_data["scnYmd"][:4]}-{screening_data["scnYmd"][4:6]}-{screening_data["scnYmd"][6:]}',
-                            crawl_ts=crawl_ts.isoformat(),
-                            url=movie_url,
-                            remain_seat_cnt=int(screening_data["frSeatCnt"]),
-                            total_seat_cnt=int(screening_data["stcnt"]),
-                        )
+                screenings.append(
+                    Screening(
+                        provider=self.chain,
+                        cinema_name=theater.name,
+                        # Use the selected theater code as canonical key.
+                        # CGV payload `siteNo` can vary (e.g., P013/P001) and break cinemas joins.
+                        cinema_code=theater.cinema_code,
+                        screen_name=screening_data["scnsNm"],
+                        movie_title=screening_data["movNm"],
+                        movie_title_en=(screening_data.get("movEnm") or "").strip() or None,
+                        source_movie_code=str(
+                            screening_data.get("movNo") or ""
+                        ).strip() or None,
+                        is_core_art_screen=is_core_art,
+                        start_dt=f'{screening_data["scnsrtTm"][:2]}:{screening_data["scnsrtTm"][2:]}',
+                        end_dt=f'{screening_data["scnendTm"][:2]}:{screening_data["scnendTm"][2:]}',
+                        play_date=f'{screening_data["scnYmd"][:4]}-{screening_data["scnYmd"][4:6]}-{screening_data["scnYmd"][6:]}',
+                        crawl_ts=crawl_ts.isoformat(),
+                        url=movie_url,
+                        remain_seat_cnt=int(screening_data["frSeatCnt"]),
+                        total_seat_cnt=int(screening_data["stcnt"]),
                     )
+                )
 
             print(f"  Completed theater {theater.name}")
             if bandwidth_saver:

@@ -37,6 +37,9 @@ class DtryxCrawler(BaseCrawler):
                     continue
 
                 for item in data.get("Showseqlist", []):
+                    cinema_code = str(item.get("CinemaCd") or "").strip()
+                    cinema_name = (item.get("CinemaNm") or "").strip()
+                    is_core_art_screen = cinema_code != "000088" and "아리랑" not in cinema_name
                     book_url = (
                         f"https://www.dtryx.com/reserve/movie.do"
                         f"?cgid=FE8EF4D2-F22D-4802-A39A-D58F23A29C1E"
@@ -49,12 +52,13 @@ class DtryxCrawler(BaseCrawler):
 
                     yield Screening(
                         provider=self.chain,
-                        cinema_name=item["CinemaNm"],
-                        cinema_code=item["CinemaCd"],
+                        cinema_name=cinema_name,
+                        cinema_code=cinema_code,
                         screen_name=item["ScreenNm"],
                         movie_title=item["MovieNmNat"].strip(),
                         movie_title_en=(item.get("MovieNmEng") or "").strip() or None,
                         source_movie_code=str(item.get("MovieCd") or "").strip() or None,
+                        is_core_art_screen=is_core_art_screen,
                         play_date=date.isoformat(),
                         start_dt=item["StartTime"],
                         end_dt=item["EndTime"],

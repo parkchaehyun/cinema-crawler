@@ -45,10 +45,9 @@ class LotteCinemaCrawler(BaseCrawler):
                     data = res.json()
 
                     for item in data["PlaySeqs"]["Items"]:
-                        if "아르떼" not in (item.get("ScreenDivisionNameKR") or ""):
-                            continue
                         if not item.get("StartTime"):
                             continue
+                        is_core_art_screen = "아르떼" in (item.get("ScreenDivisionNameKR") or "")
 
                         screen_id = item.get("ScreenID")
                         cinema_id = item.get("CinemaID")
@@ -78,6 +77,7 @@ class LotteCinemaCrawler(BaseCrawler):
                                 or item.get("MovieCode")
                                 or ""
                             ).strip() or None,
+                            is_core_art_screen=is_core_art_screen,
                             play_date=play_date,
                             start_dt=start_time,
                             end_dt=item.get("EndTime"),

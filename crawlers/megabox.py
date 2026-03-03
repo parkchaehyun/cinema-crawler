@@ -50,10 +50,12 @@ class MegaboxCrawler(BaseCrawler):
                 for item in data.get("megaMap", {}).get("movieFormList", []):
                     cinema_name = html.unescape(item["brchNm"]).strip()
                     screen_name = item["theabExpoNm"].strip()
-
-                    # At 코엑스, only include art screens
-                    if cinema_name == "코엑스" and screen_name not in {"스크린A", "스크린B"}:
-                        continue
+                    branch_code = str(item.get("brchNo") or "").strip()
+                    is_core_art_screen = (
+                        (cinema_name == "코엑스" and screen_name in {"스크린A", "스크린B"})
+                        or branch_code == "0081"
+                        or "픽쳐하우스" in cinema_name
+                    )
 
                     play_schdl_no = item.get("playSchdlNo")
                     book_url = f"https://www.megabox.co.kr/bookingByPlaySchdlNo?playSchdlNo={play_schdl_no}" if play_schdl_no else None
@@ -61,13 +63,14 @@ class MegaboxCrawler(BaseCrawler):
                     yield Screening(
                         provider=self.chain,
                         cinema_name=cinema_name,
-                        cinema_code=item["brchNo"],
+                        cinema_code=branch_code,
                         screen_name=screen_name,
                         movie_title=html.unescape(item["rpstMovieNm"]).strip(),
                         movie_title_en=html.unescape(item.get("movieEngNm") or "").strip() or None,
                         source_movie_code=str(
                             item.get("rpstMovieNo") or item.get("movieNo") or ""
                         ).strip() or None,
+                        is_core_art_screen=is_core_art_screen,
                         play_date=date.isoformat(),
                         start_dt=item["playStartTime"],
                         end_dt=item["playEndTime"],

@@ -143,6 +143,7 @@ class TinyTicketCrawler(BaseCrawler):
                                     cinema_name=theater.name,
                                     screen_name=theater.name,
                                     movie_title=title,
+                                    is_core_art_screen=True,
                                     play_date=play_date.isoformat(),
                                     start_dt=start_str,
                                     end_dt=end_str,

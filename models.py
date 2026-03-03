@@ -16,6 +16,7 @@ class Screening(BaseModel):
     source_movie_code: Optional[str] = None
     source_year: Optional[int] = None
     source_director: Optional[str] = None
+    is_core_art_screen: bool = False
     play_date: str  # e.g. 2025-05-26
     start_dt: str = Field(..., pattern=r'^\d{2}:\d{2}$',
                           description="Start time in HH:MM format, allowing 00:00 to 26:59")

@@ -82,6 +82,7 @@ class KOFACrawler(BaseCrawler):
                     source_movie_code = (item.get("cMovieId") or "").strip() or None,
                     source_year = source_year,
                     source_director = (item.get("cDirector") or "").strip() or None,
+                    is_core_art_screen = True,
                     play_date    = play_date.isoformat(),
                     start_dt     = item["cMovieTime"],
                     end_dt       = end_dt,
