@@ -17,6 +17,13 @@ This repo contains two AWS Lambda container functions:
 
 ---
 
+## Related Links
+
+- Web UI repo: https://github.com/parkchaehyun/cinema-site
+- Production site: https://indiego.ing
+
+---
+
 ## Current Architecture
 
 ```text
