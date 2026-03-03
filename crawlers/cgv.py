@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Iterable
 
+import httpx
+import random
 from playwright.async_api import async_playwright, Browser
 
 from crawlers.base import BaseCrawler
@@ -35,12 +37,41 @@ class CGVCrawler(BaseCrawler):
         if not self.theaters:
             raise ValueError("No CGV theaters found")
 
+    async def _fetch_proxy_url(self) -> str | None:
+        api_key = os.getenv("WEBSHARE_API_KEY")
+        if not api_key:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://proxy.webshare.io/api/v2/proxy/list/",
+                    params={"mode": "direct", "page_size": 100},
+                    headers={"Authorization": f"Token {api_key}"},
+                )
+                resp.raise_for_status()
+            proxies = [p for p in resp.json()["results"] if p.get("valid")]
+            if not proxies:
+                raise ValueError("No valid proxies in list")
+            p = random.choice(proxies)
+            return (
+                f"http://{p['username']}:{p['password']}@"
+                f"{p['proxy_address']}:{p['port']}"
+            )
+        except Exception as e:
+            print(f"⚠ Could not fetch proxy list: {e}. Proceeding without proxy.")
+            return None
+
     async def run(
         self, start_date: dt.date | None = None, max_days: int | None = None
     ) -> list[Screening]:
         screenings = []
         crawl_ts = dt.datetime.utcnow()
         headless = os.getenv("CGV_HEADLESS", "1").lower() not in {"0", "false", "no"}
+        proxy_url = await self._fetch_proxy_url()
+        if proxy_url:
+            print("  Using Webshare proxy for CGV crawl.")
+        else:
+            print("  No proxy configured — proceeding without proxy.")
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -81,7 +112,7 @@ class CGVCrawler(BaseCrawler):
                 for theater_index, theater in enumerate(batch):
                     try:
                         theater_screenings = await self.crawl_theater(
-                            browser, theater, theater_index, len(batch), crawl_ts
+                            browser, theater, theater_index, len(batch), crawl_ts, proxy_url
                         )
                     except CGVAccessBlockedError as exc:
                         print(f"❌ {exc}")
@@ -146,14 +177,18 @@ class CGVCrawler(BaseCrawler):
         theater_index: int,
         batch_size: int,
         crawl_ts: dt.datetime,
+        proxy_url: str | None = None,
     ) -> list[Screening]:
         # Create a new browser context with a realistic User-Agent and locale
-        context = await browser.new_context(
+        context_kwargs = dict(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 800},
             locale="ko-KR",
             timezone_id="Asia/Seoul",
         )
+        if proxy_url:
+            context_kwargs["proxy"] = {"server": proxy_url}
+        context = await browser.new_context(**context_kwargs)
         # Inject basic stealth to hide navigator.webdriver
         await context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
