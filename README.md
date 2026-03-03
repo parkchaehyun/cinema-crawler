@@ -1,4 +1,4 @@
-# Cinema Crawler & TMDB Poster Updater
+# Indiego Crawler & TMDB Poster Updater
 
 ## Overview
 
