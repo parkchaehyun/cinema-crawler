@@ -110,14 +110,14 @@ Both Lambda functions are packaged as separate Docker images from the same `Dock
 ```bash
 docker buildx build \
   --platform linux/amd64 \
-  --target stage \
+  --target crawler \
   --tag lambda-crawler:latest \
   --load \
   .
 ```
 
 * **`--platform linux/amd64`**: ensures the image is built for x86\_64 (AWS Lambda’s CPU architecture).
-* **`--target stage`**: picks the multi-stage Dockerfile’s first stage, which installs Chrome, Selenium, and the crawler code.
+* **`--target crawler`**: picks the crawler runtime stage (Playwright base + crawler code).
 * **`--load`**: loads the resulting image into your local Docker daemon as `lambda-crawler:latest`.
 
 Verify with `docker images | grep lambda-crawler`.
@@ -127,13 +127,13 @@ Verify with `docker images | grep lambda-crawler`.
 ```bash
 docker buildx build \
   --platform linux/amd64 \
-  --target builder-tmdb \
+  --target tmdb \
   --tag lambda-tmdb:latest \
   --load \
   .
 ```
 
-* **`--target builder-tmdb`**: picks the TMDB updater stage (Python 3.10 + `httpx`, `supabase-py`, and `poster_updater.py`).
+* **`--target tmdb`**: picks the TMDB updater stage (Python 3.11 + `httpx`, `supabase-py`, and `poster_updater.py`).
 * **`--load`**: loads as `lambda-tmdb:latest` locally.
 
 Verify with `docker images | grep lambda-tmdb`.
