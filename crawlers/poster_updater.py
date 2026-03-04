@@ -103,6 +103,7 @@ def fetch_movies_needing_posters() -> list[dict]:
                 .select("id, title, canonical_title, canonical_title_en")
                 .in_("id", chunk)
                 .is_("tmdb_id", None)
+                .or_("tmdb_locked.is.null,tmdb_locked.eq.false")
                 .execute()
             )
         except Exception as exc:
@@ -114,6 +115,7 @@ def fetch_movies_needing_posters() -> list[dict]:
                 .select("id, title, canonical_title")
                 .in_("id", chunk)
                 .is_("tmdb_id", None)
+                .or_("tmdb_locked.is.null,tmdb_locked.eq.false")
                 .execute()
             )
         movies.extend(movie_resp.data or [])
@@ -517,6 +519,7 @@ def update_movie_poster(movie_id: int, match: dict) -> bool:
             .update(payload)
             .eq("id", movie_id)
             .is_("tmdb_id", None)
+            .or_("tmdb_locked.is.null,tmdb_locked.eq.false")
             .execute()
         )
         return True
