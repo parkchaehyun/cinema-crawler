@@ -564,34 +564,37 @@ def lambda_handler(event, context):
     with httpx.Client(timeout=10.0, headers=headers) as client:
         for movie in movies:
             movie_id = movie.get("id")
-            seed_titles = _build_seed_titles(movie)
-            if not seed_titles:
-                logger.warning("Skipping id=%s because all candidate titles are empty", movie_id)
-                continue
+            try:
+                seed_titles = _build_seed_titles(movie)
+                if not seed_titles:
+                    logger.warning("Skipping id=%s because all candidate titles are empty", movie_id)
+                    continue
 
-            lookup_result = lookup_poster_for(seed_titles, client)
-            if not lookup_result:
+                lookup_result = lookup_poster_for(seed_titles, client)
+                if not lookup_result:
+                    logger.info(
+                        "No poster found for id=%s seeds=%s",
+                        movie_id,
+                        [seed for seed, _ in seed_titles[:3]],
+                    )
+                    continue
+
+                update_movie_poster(movie_id, lookup_result)
+
                 logger.info(
-                    "No poster found for id=%s seeds=%s",
+                    "Updated movie id=%s seed='%s'(%s) tmdb_id=%s matched_query='%s' tmdb_title='%s' reason=%s score=%.1f",
                     movie_id,
-                    [seed for seed, _ in seed_titles[:3]],
+                    lookup_result.get("matched_seed_title"),
+                    lookup_result.get("seed_type"),
+                    lookup_result.get("tmdb_id"),
+                    lookup_result.get("matched_query"),
+                    lookup_result.get("matched_tmdb_title"),
+                    lookup_result.get("selection_reason"),
+                    lookup_result.get("tmdb_match_score", 0.0),
                 )
-                continue
-
-            update_movie_poster(movie_id, lookup_result)
-
-            logger.info(
-                "Updated movie id=%s seed='%s'(%s) tmdb_id=%s matched_query='%s' tmdb_title='%s' reason=%s score=%.1f",
-                movie_id,
-                lookup_result.get("matched_seed_title"),
-                lookup_result.get("seed_type"),
-                lookup_result.get("tmdb_id"),
-                lookup_result.get("matched_query"),
-                lookup_result.get("matched_tmdb_title"),
-                lookup_result.get("selection_reason"),
-                lookup_result.get("tmdb_match_score", 0.0),
-            )
-            processed += 1
+                processed += 1
+            except Exception as e:
+                logger.error("Unexpected error processing movie id=%s: %s", movie_id, e)
 
     logger.info(f"=== Completed run; processed {processed}/{len(movies)}")
     return {"status": "success", "processed": processed}

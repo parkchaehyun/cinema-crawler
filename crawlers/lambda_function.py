@@ -11,6 +11,9 @@ def lambda_handler(event, context):
     max_days = event.get("max_days", 14)
     supabase = SupabaseClient()
 
+    failed = []
+    succeeded = []
+
     async def run_all():
         for chain in chains:
             try:
@@ -22,12 +25,17 @@ def lambda_handler(event, context):
                 )
                 print(f"✔ {chain}: Crawled {len(screenings)} screenings")
                 await crawler.save_to_db(screenings)
+                succeeded.append(chain)
             except Exception as e:
                 print(f"❌ Error with {chain}: {e}")
+                failed.append(chain)
 
     asyncio.run(run_all())
 
+    if failed:
+        # Raise so EventBridge/scheduled Lambda marks the invocation as failed.
+        raise RuntimeError(f"Failed chains: {failed}")
     return {
         "statusCode": 200,
-        "body": f"Crawlers run for: {chains}"
+        "body": f"OK: {succeeded}"
     }
