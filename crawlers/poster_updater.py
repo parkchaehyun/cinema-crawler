@@ -23,6 +23,7 @@ supabase = supabase_wrapper.client
 TMDB_SEARCH_URL  = "https://api.themoviedb.org/3/search/movie"
 TMDB_IMAGE_BASE  = "https://image.tmdb.org/t/p/w500"
 SEARCH_LANGUAGES = ("ko-KR", "en-US")
+GENERIC_EN_CLEAR_MARGIN = 12
 EDITION_SUFFIX_PATTERN = r"(?:특별판|무삭제판|극장판|감독판|디렉터스\s*컷|director['’]s\s*cut)"
 FORMAT_SUFFIX_PATTERN = r"(?:2d|3d|4k|8k|35mm|70mm|16mm|imax|dolby|atmos|자막|더빙|리마스터링|디지털복원|배리어프리(?:\s*버전)?|영문자막|한글자막)"
 EVENT_REGEX_FRAGMENTS = (
@@ -69,6 +70,7 @@ YEAR_PAREN_RE = re.compile(r"\(\s*((?:19|20)\d{2})\s*\)")
 ANY_PAREN_RE = re.compile(r"\([^)]*\)")
 ANY_BRACKET_RE = re.compile(r"\[[^]]*\]")
 MOVIE_FETCH_CHUNK_SIZE = 500
+EN_STOPWORDS = {"the", "a", "an", "of", "and", "in", "on", "to", "for", "with", "without", "at", "from"}
 
 
 def fetch_movies_needing_posters() -> list[dict]:
@@ -233,11 +235,11 @@ def _build_title_candidates(title: str) -> list[str]:
     return candidates
 
 
-def _build_seed_titles(movie: dict) -> list[str]:
-    seeds: list[str] = []
+def _build_seed_titles(movie: dict) -> list[tuple[str, str]]:
+    seeds: list[tuple[str, str]] = []
     seen: set[str] = set()
 
-    def add(value: str | None):
+    def add(value: str | None, seed_type: str):
         raw = html.unescape((value or "").strip())
         if len(raw) < 2:
             return
@@ -245,12 +247,28 @@ def _build_seed_titles(movie: dict) -> list[str]:
         if key in seen:
             return
         seen.add(key)
-        seeds.append(raw)
+        seeds.append((raw, seed_type))
 
-    add(movie.get("canonical_title_en"))
-    add(movie.get("canonical_title"))
-    add(movie.get("title"))
+    add(movie.get("canonical_title_en"), "en")
+    add(movie.get("canonical_title"), "ko")
+    add(movie.get("title"), "raw")
     return seeds
+
+
+def _is_generic_english_title(seed: str) -> bool:
+    # Very short single-token EN titles are highly collision-prone on TMDB.
+    letters_only = re.sub(r"[^A-Za-z ]", "", seed or "").strip().lower()
+    tokens = [token for token in re.split(r"\s+", letters_only) if token]
+    content_tokens = [token for token in tokens if token not in EN_STOPWORDS]
+    content_len = len("".join(content_tokens))
+
+    if not tokens:
+        return False
+    if len(content_tokens) <= 1 and content_len <= 10:
+        return True
+    if len(tokens) <= 2 and content_len <= 7:
+        return True
+    return False
 
 
 def _preferred_languages_for(seed: str) -> tuple[str, str]:
@@ -339,13 +357,54 @@ def _search_tmdb(client: httpx.Client, query: str, language: str) -> list[dict]:
     return data.get("results", [])
 
 
-def lookup_poster_for(seed_titles: list[str], client: httpx.Client) -> dict | None:
+def _pick_final_candidate(candidates: list[dict]) -> dict | None:
+    if not candidates:
+        return None
+
+    def score_of(candidate: dict) -> int:
+        return int(candidate.get("tmdb_match_score", -10_000))
+
+    best_en = None
+    best_ko = None
+    best_overall = None
+    for candidate in candidates:
+        if best_overall is None or score_of(candidate) > score_of(best_overall):
+            best_overall = candidate
+        seed_type = candidate.get("seed_type")
+        if seed_type == "en" and (best_en is None or score_of(candidate) > score_of(best_en)):
+            best_en = candidate
+        if seed_type == "ko" and (best_ko is None or score_of(candidate) > score_of(best_ko)):
+            best_ko = candidate
+
+    # If both EN and KO candidates exist, resolve ambiguity deliberately.
+    if best_en and best_ko:
+        en_score = score_of(best_en)
+        ko_score = score_of(best_ko)
+        if _is_generic_english_title(best_en.get("matched_seed_title", "")):
+            if en_score >= ko_score + GENERIC_EN_CLEAR_MARGIN:
+                best_en["selection_reason"] = "generic_en_clear_margin"
+                return best_en
+            best_ko["selection_reason"] = "ko_preferred_over_generic_en"
+            return best_ko
+        if en_score > ko_score:
+            best_en["selection_reason"] = "en_higher_score"
+            return best_en
+        best_ko["selection_reason"] = "ko_tiebreak_or_higher"
+        return best_ko
+
+    if best_overall:
+        best_overall["selection_reason"] = "best_overall"
+    return best_overall
+
+
+def lookup_poster_for(seed_titles: list[tuple[str, str]], client: httpx.Client) -> dict | None:
     """
     Try multiple normalized query variants and languages.
     Returns TMDB match payload when matched.
     """
     attempted: set[tuple[str, str]] = set()
-    for seed in seed_titles:
+    candidates: list[dict] = []
+    for seed, seed_type in seed_titles:
         for query in _build_title_candidates(seed):
             for language in _preferred_languages_for(seed):
                 attempt_key = (query.casefold(), language)
@@ -387,19 +446,22 @@ def lookup_poster_for(seed_titles: list[str], client: httpx.Client) -> dict | No
                     continue
 
                 score = _score_result(best, query=query, original_title=seed)
-                return {
+                candidates.append(
+                    {
                     "tmdb_id": tmdb_id,
                     "poster_url": TMDB_IMAGE_BASE + poster_path,
                     "matched_seed_title": seed,
+                    "seed_type": seed_type,
                     "matched_query": query,
                     "matched_tmdb_title": best.get("title") or best.get("original_title") or "",
                     "original_title": best.get("original_title") or None,
                     "release_date": best.get("release_date") or None,
                     "tmdb_language": best.get("original_language") or language,
                     "tmdb_match_score": float(score),
-                }
+                    }
+                )
 
-    return None
+    return _pick_final_candidate(candidates)
 
 
 def update_movie_poster(movie_id: int, match: dict) -> bool:
@@ -509,18 +571,25 @@ def lambda_handler(event, context):
 
             lookup_result = lookup_poster_for(seed_titles, client)
             if not lookup_result:
-                logger.info("No poster found for id=%s seeds=%s", movie_id, seed_titles[:3])
+                logger.info(
+                    "No poster found for id=%s seeds=%s",
+                    movie_id,
+                    [seed for seed, _ in seed_titles[:3]],
+                )
                 continue
 
             update_movie_poster(movie_id, lookup_result)
 
             logger.info(
-                "Updated movie id=%s seed='%s' tmdb_id=%s matched_query='%s' tmdb_title='%s'",
+                "Updated movie id=%s seed='%s'(%s) tmdb_id=%s matched_query='%s' tmdb_title='%s' reason=%s score=%.1f",
                 movie_id,
                 lookup_result.get("matched_seed_title"),
+                lookup_result.get("seed_type"),
                 lookup_result.get("tmdb_id"),
                 lookup_result.get("matched_query"),
                 lookup_result.get("matched_tmdb_title"),
+                lookup_result.get("selection_reason"),
+                lookup_result.get("tmdb_match_score", 0.0),
             )
             processed += 1
 
