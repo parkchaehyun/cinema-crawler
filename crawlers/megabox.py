@@ -3,10 +3,19 @@ from models import Screening, Chain
 import httpx
 import datetime as dt
 import html
+import re
 from typing import Iterable
 
 class MegaboxCrawler(BaseCrawler):
     chain: Chain = "Megabox"
+
+    @staticmethod
+    def _normalize_screen_name(raw_name: str) -> str:
+        name = html.unescape(raw_name or "").strip()
+        # Remove trailing format/tech suffixes only.
+        name = re.sub(r"\s*\[[^\]]*]\s*$", "", name)
+        name = re.sub(r"\s*\([^)]*\)\s*$", "", name)
+        return re.sub(r"\s+", " ", name).strip()
 
     async def iter(self, date: dt.date) -> Iterable[Screening]:
         url = "https://www.megabox.co.kr/on/oh/ohc/Brch/schedulePage.do"
@@ -49,7 +58,7 @@ class MegaboxCrawler(BaseCrawler):
 
                 for item in data.get("megaMap", {}).get("movieFormList", []):
                     cinema_name = html.unescape(item["brchNm"]).strip()
-                    screen_name = item["theabExpoNm"].strip()
+                    screen_name = self._normalize_screen_name(item.get("theabExpoNm"))
                     branch_code = str(item.get("brchNo") or "").strip()
                     is_core_art_screen = (
                         (cinema_name == "코엑스" and screen_name in {"스크린A", "스크린B"})
